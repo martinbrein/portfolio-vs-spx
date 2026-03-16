@@ -103,17 +103,17 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
 
 /**
  * Classify a ticker and fetch its prices.
- * Uses Yahoo Finance quoteType to distinguish stocks/CEDEARs (EQUITY) from renta fija.
+ * Bond detection priority:
+ *  1. bondTickers set (from operations: CUPON/AMORTIZACION, sovereign list, 5-char ONs)
+ *  2. Yahoo Finance quoteType != 'EQUITY' as fallback
  * Bonds are quoted per 100 nominal on Yahoo → divide by 100 to get per-unit price.
  */
-export async function fetchTickerPrices(ticker, startDate, endDate) {
+export async function fetchTickerPrices(ticker, startDate, endDate, isBond = false) {
   // Try Yahoo Finance first
   const { prices: yahooPrices, quoteType } = await fetchYahooPrices(ticker, startDate, endDate)
   if (Object.keys(yahooPrices).length > 0) {
-    // EQUITY = acción local o CEDEAR → price is per unit, use directly
-    // Anything else (BOND, MUTUALFUND, unknown) → renta fija, price is per 100 nominal → /100
-    const isBond = quoteType !== 'EQUITY'
-    const prices = isBond
+    const bond = isBond || quoteType !== 'EQUITY'
+    const prices = bond
       ? Object.fromEntries(Object.entries(yahooPrices).map(([d, p]) => [d, p / 100]))
       : yahooPrices
     return { prices, source: 'yahoo' }
@@ -129,13 +129,13 @@ export async function fetchTickerPrices(ticker, startDate, endDate) {
 /**
  * Fetch prices for all tickers in parallel
  */
-export async function fetchAllPrices(tickers, startDate, endDate, onProgress) {
+export async function fetchAllPrices(tickers, startDate, endDate, onProgress, bondTickers = new Set()) {
   const marketPrices = {} // { ticker: { date: priceARS } }
   const priceSources = {} // { ticker: 'yahoo' | 'cafci' | 'interpolated' | 'none' }
 
   await Promise.allSettled(
     tickers.map(async (ticker) => {
-      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate)
+      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate, bondTickers.has(ticker))
       marketPrices[ticker] = prices
       priceSources[ticker] = source
       onProgress?.()

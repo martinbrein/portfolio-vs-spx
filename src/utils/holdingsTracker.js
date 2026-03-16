@@ -5,6 +5,24 @@
  * - List of ECF events with dates
  */
 
+// Known Argentine sovereign USD bonds
+const SOVEREIGN_BONDS = new Set(['A027', 'AN29', 'AL30', 'AL36', 'AL41', 'AE38', 'GD29', 'GD30', 'GD35', 'GD38', 'GD41'])
+
+// Stocks/CEDEARs that happen to have 5 chars (exceptions to the ON rule)
+const STOCK_EXCEPTIONS = new Set(['TECO2', 'TGSU2'])
+
+/**
+ * Returns true if the ticker is renta fija based on static rules.
+ * - Sovereign bonds list
+ * - 5-char tickers = ONs (corporate bonds), except STOCK_EXCEPTIONS
+ */
+function isStaticBond(ticker) {
+  if (STOCK_EXCEPTIONS.has(ticker)) return false
+  if (SOVEREIGN_BONDS.has(ticker)) return true
+  if (ticker.length === 5) return true
+  return false
+}
+
 export function buildPortfolioState(ops) {
   // Filter out ignored ops, sort by settlement date (or trade date)
   const active = ops
@@ -45,8 +63,12 @@ export function buildPortfolioState(ops) {
       knownPrices[op.ticker].push({ date: op.date, price: arsPrice })
     }
 
-    // CUPON / AMORTIZACION also identify the ticker as a bond
-    if ((op.type === 'CUPON' || op.type === 'AMORTIZACION') && op.ticker) {
+    // Mark as bond via operation type or static rules
+    if (op.ticker && (
+      op.type === 'CUPON' ||
+      op.type === 'AMORTIZACION' ||
+      isStaticBond(op.ticker)
+    )) {
       bondTickers.add(op.ticker)
     }
 
