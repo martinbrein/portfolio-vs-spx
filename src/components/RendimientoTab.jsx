@@ -236,16 +236,16 @@ export default function RendimientoTab({
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">P&L Precio</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">Ingresos</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">P&L Total</th>
-                <th className="pb-2 text-right  text-xs text-slate-400 font-medium">Contribución</th>
+                <th className="pb-2 text-right  text-xs text-slate-400 font-medium" title="P&L total del activo como % del capital aportado">% Capital</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => {
-                const contrib = truePnlUSD
-                  ? (p.totalPnlUSD / truePnlUSD) * 100
-                  : totalPortfolioUSD > 0
-                    ? (p.totalPnlUSD / totalPortfolioUSD) * 100
-                    : null
+                // Contribution = position P&L as % of total invested capital.
+                // Using netContributions (always positive) as denominator keeps
+                // signs correct even when the overall portfolio P&L is negative.
+                const base = netContributions ?? totalPortfolioUSD
+                const contrib = base > 0 ? (p.totalPnlUSD / base) * 100 : null
                 const pricePnl = isClosedTable ? p.realizedPnlUSD : p.unrealizedPnlUSD
                 const pricePos = (pricePnl ?? 0) >= 0
                 const incomePos = p.incomeUSD >= 0
@@ -288,7 +288,7 @@ export default function RendimientoTab({
                         ${totalPos ? 'text-green-400' : 'text-red-400'}`}>
                       {`${totalPos ? '+' : ''}US$ ${fmt(Math.abs(p.totalPnlUSD), 0)}`}
                     </td>
-                    {/* Contribution to true total P&L */}
+                    {/* P&L as % of invested capital */}
                     <td className={`py-2.5 text-right font-mono text-xs
                         ${(contrib ?? 0) >= 0 ? 'text-slate-300' : 'text-red-300'}`}>
                       {contrib != null
