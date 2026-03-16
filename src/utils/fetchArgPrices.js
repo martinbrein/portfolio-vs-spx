@@ -102,14 +102,12 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
  * Classify a ticker and fetch its prices.
  * Returns { date: priceARS } map.
  */
-export async function fetchTickerPrices(ticker, startDate, endDate) {
+export async function fetchTickerPrices(ticker, startDate, endDate, isBond = false) {
   // Try stock (Yahoo Finance .BA) first
   const stockPrices = await fetchStockPrices(ticker, startDate, endDate)
   if (Object.keys(stockPrices).length > 0) {
-    // Argentine bonds are quoted per 100 nominal on Yahoo Finance (e.g. GD35 = 113 means 1.13 ARS per nominal).
-    // Bond tickers contain digits (GD30, AL35, TX28, AN29, LOC5O, etc.).
-    // Convert to per-unit (per 1 nominal) so calcPortfolioValue can use qty × price directly.
-    const isBond = /\d/.test(ticker)
+    // Argentine bonds are quoted per 100 nominal on Yahoo Finance.
+    // Divide by 100 to convert to per-unit (per 1 nominal).
     const prices = isBond
       ? Object.fromEntries(Object.entries(stockPrices).map(([d, p]) => [d, p / 100]))
       : stockPrices
@@ -126,13 +124,13 @@ export async function fetchTickerPrices(ticker, startDate, endDate) {
 /**
  * Fetch prices for all tickers in parallel
  */
-export async function fetchAllPrices(tickers, startDate, endDate, onProgress) {
+export async function fetchAllPrices(tickers, startDate, endDate, onProgress, bondTickers = new Set()) {
   const marketPrices = {} // { ticker: { date: priceARS } }
   const priceSources = {} // { ticker: 'yahoo' | 'cafci' | 'interpolated' | 'none' }
 
   const results = await Promise.allSettled(
     tickers.map(async (ticker) => {
-      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate)
+      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate, bondTickers.has(ticker))
       marketPrices[ticker] = prices
       priceSources[ticker] = source
       onProgress?.()
