@@ -16,9 +16,7 @@ function fmt(n, dec = 2) {
 }
 
 /**
- * Convert operation price to ARS per unit.
- * Mirrors the logic in holdingsTracker — always returns ARS.
- *
+ * Convert operation price to ARS per unit (for display / ARS-instrument P&L).
  * For USD-section ops: use tipoCambio when it's a real rate (> 1),
  * otherwise fall back to mepRate (handles licitación primaria where TC ≤ 1).
  */
@@ -29,17 +27,31 @@ function toARSPrice(op, mepRate) {
     const qty = Math.abs(op.valorNominal ?? 0)
     if (!qty) return 0
     const unitPrice = Math.abs(op.importeNeto ?? 0) / qty
-    // importeNeto for USD-section ops is in USD → convert to ARS
     return isUSD ? unitPrice * (mepRate ?? 1) : unitPrice
   }
   if (isUSD) {
-    // Use tipoCambio from the row when it's a real ARS/USD rate; otherwise use current mepRate
     const tc = (op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1)
     return price < 5
-      ? price * tc          // FCI / USD-at-par (e.g. LOC6O = 1.0 USD/unit)
-      : (price / 100) * tc  // Bond % of par
+      ? price * tc
+      : (price / 100) * tc
   }
-  return price // ARS section: direct price
+  return price
+}
+
+/**
+ * Convert operation price to USD per unit (for USD-instrument P&L).
+ * price >= 5  → bond % of par  → divide by 100  (e.g. 67.0 → 0.67 USD/unit)
+ * price <  5  → already USD/unit (FCI, at-par, e.g. LOC6O = 1.0)
+ * fallback    → derive from importeNeto / qty
+ */
+function toUSDPrice(op) {
+  const price = op.precio
+  if (!price || price <= 0) {
+    const qty = Math.abs(op.valorNominal ?? 0)
+    if (!qty) return 0
+    return Math.abs(op.importeNeto ?? 0) / qty
+  }
+  return price >= 5 ? price / 100 : price
 }
 
 /** Get most recent ARS price for a ticker from market prices */
@@ -80,57 +92,87 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
 
     if (buys.length === 0) continue
 
-    // Weighted average buy price in ARS
+    // Is this a USD-denominated instrument?
+    const isUSDInstrument = buys.some(op =>
+      op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
+    )
+
+    // Weighted average buy price in ARS (for display) and USD (for P&L of USD instruments)
     let totalQtyBought = 0
     let totalCostARS = 0
+    let totalCostUSD = 0
     for (const op of buys) {
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
       totalCostARS += qty * toARSPrice(op, mepRate)
+      totalCostUSD += qty * toUSDPrice(op)
       totalQtyBought += qty
     }
     if (totalQtyBought === 0) continue
     const avgBuyPriceARS = totalCostARS / totalQtyBought
+    const avgBuyPriceUSD = totalCostUSD / totalQtyBought
 
-    // Weighted average sell price in ARS
+    // Weighted average sell price in ARS and USD
     let totalQtySold = 0
     let totalSaleARS = 0
+    let totalSaleUSD = 0
     for (const op of sells) {
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
       totalSaleARS += qty * toARSPrice(op, mepRate)
+      totalSaleUSD += qty * toUSDPrice(op)
       totalQtySold += qty
     }
     const avgSellPriceARS = totalQtySold > 0 ? totalSaleARS / totalQtySold : null
+    const avgSellPriceUSD = totalQtySold > 0 ? totalSaleUSD / totalQtySold : null
 
     const heldQty = currentQty[ticker] ?? 0
     const isClosed = heldQty === 0 && totalQtySold > 0
 
-    // Current or sell price
+    // Current or sell price (in ARS, for display)
     const { price: latestPriceARS } = getLatestMarketPrice(ticker, marketPrices, knownPrices)
     const valuationPriceARS = isClosed
       ? avgSellPriceARS
-      : (latestPriceARS ?? avgBuyPriceARS) // fallback to cost if no price
+      : (latestPriceARS ?? avgBuyPriceARS)
 
-    const priceChangeARS = valuationPriceARS != null
-      ? valuationPriceARS - avgBuyPriceARS
-      : null
-    const priceChangePct = (priceChangeARS != null && avgBuyPriceARS > 0)
-      ? (priceChangeARS / avgBuyPriceARS) * 100
-      : null
-
-    // Price-based P&L in ARS (capital gains only, excludes income)
-    const unrealizedPnlARS = heldQty > 0 && latestPriceARS != null
-      ? heldQty * (latestPriceARS - avgBuyPriceARS)
-      : 0
-    const realizedPnlARS = totalQtySold > 0
-      ? totalQtySold * ((avgSellPriceARS ?? avgBuyPriceARS) - avgBuyPriceARS)
-      : 0
-
-    // Price-based P&L in USD
     const safeRate = mepRate ?? 1
-    const unrealizedPnlUSD = unrealizedPnlARS / safeRate
-    const realizedPnlUSD = realizedPnlARS / safeRate
+
+    // For USD instruments: compute P&L directly in USD to avoid TC-mixing distortion.
+    // (ARS path: e.g. stock bought at 67%*TC_old, now priced at 60%*TC_new → ARS gain
+    //  but USD loss. Dividing ARS P&L by TC_current gives wrong sign.)
+    // For ARS instruments: compute in ARS and convert at current rate.
+    let unrealizedPnlUSD, realizedPnlUSD, priceChangePct
+
+    if (isUSDInstrument && mepRate) {
+      const latestPriceUSD = latestPriceARS != null ? latestPriceARS / mepRate : null
+      const valuationPriceUSD = isClosed
+        ? (avgSellPriceUSD ?? avgBuyPriceUSD)
+        : (latestPriceUSD ?? avgBuyPriceUSD)
+
+      unrealizedPnlUSD = heldQty > 0 && latestPriceUSD != null
+        ? heldQty * (latestPriceUSD - avgBuyPriceUSD)
+        : 0
+      realizedPnlUSD = totalQtySold > 0
+        ? totalQtySold * ((avgSellPriceUSD ?? avgBuyPriceUSD) - avgBuyPriceUSD)
+        : 0
+      priceChangePct = avgBuyPriceUSD > 0
+        ? ((valuationPriceUSD - avgBuyPriceUSD) / avgBuyPriceUSD) * 100
+        : null
+    } else {
+      const priceChangeARS = valuationPriceARS != null ? valuationPriceARS - avgBuyPriceARS : null
+      const unrealizedPnlARS = heldQty > 0 && latestPriceARS != null
+        ? heldQty * (latestPriceARS - avgBuyPriceARS)
+        : 0
+      const realizedPnlARS = totalQtySold > 0
+        ? totalQtySold * ((avgSellPriceARS ?? avgBuyPriceARS) - avgBuyPriceARS)
+        : 0
+      unrealizedPnlUSD = unrealizedPnlARS / safeRate
+      realizedPnlUSD = realizedPnlARS / safeRate
+      priceChangePct = (priceChangeARS != null && avgBuyPriceARS > 0)
+        ? (priceChangeARS / avgBuyPriceARS) * 100
+        : null
+    }
+
     const pricePnlUSD = unrealizedPnlUSD + realizedPnlUSD
 
     // Income: dividends (DIVIDENDO), bond coupons (CUPON), amortizations (AMORTIZACION)

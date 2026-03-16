@@ -50,14 +50,6 @@ export function buildPortfolioState(ops, mepRatesFromOps = {}) {
           arsPrice = (price / 100) * tc  // Bond % of par
           bondTickers.add(op.ticker)     // Mark as bond
         }
-      } else {
-        // ARS section: stocks trade >> 300 ARS in current Argentine market.
-        // Bonds are always quoted as % of par (typically 50–150).
-        // If price < 300, it's almost certainly a bond quoted as % of par.
-        // arsPrice stays as price (i.e. "% of par per nominal unit" = same scale as IOL÷100).
-        if (price < 300 && (op.type === 'COMPRA' || op.type === 'VENTA' || op.type === 'SCOMP')) {
-          bondTickers.add(op.ticker)
-        }
       }
       if (!knownPrices[op.ticker]) knownPrices[op.ticker] = []
       knownPrices[op.ticker].push({ date: op.date, price: arsPrice })

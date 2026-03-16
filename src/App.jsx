@@ -104,11 +104,31 @@ export default function App() {
 
       // Step 3: Fetch market prices
       let fetched = 0
-      const { marketPrices: mp, priceSources: ps } = await fetchAllPrices(
+      const { marketPrices: rawMp, priceSources: ps } = await fetchAllPrices(
         tickers, startDate, endDate,
         () => { fetched++; setLoadingStep(`Obteniendo precios... ${fetched}/${tickers.length}`) },
         state.bondTickers
       )
+      // Auto-correct bond prices that IOL returned per 100 nominal but weren't
+      // flagged as bonds (e.g. ARS-section bonds without CUPON/AMORT events yet).
+      // Logic: if market_price / known_buy_price ≈ 100, prices are per-100-nominal → divide.
+      // Stocks never move 40x+ in any realistic portfolio window, so the threshold is safe.
+      const mp = {}
+      for (const [ticker, prices] of Object.entries(rawMp)) {
+        const known = (state.knownPrices?.[ticker] ?? []).sort((a, b) => a.date.localeCompare(b.date))
+        const entries = Object.entries(prices).sort()
+        if (known.length === 0 || entries.length === 0) { mp[ticker] = prices; continue }
+        const firstKnown = known[0]
+        const closest = entries.find(([d]) => d >= firstKnown.date) ?? entries[0]
+        const ratio = closest[1] / firstKnown.price
+        if (ratio > 40 && ratio < 500) {
+          // Scale mismatch detected — market prices are per 100 nominal
+          mp[ticker] = Object.fromEntries(entries.map(([d, p]) => [d, p / 100]))
+          state.bondTickers.add(ticker) // mark for downstream code
+        } else {
+          mp[ticker] = prices
+        }
+      }
       setMarketPrices(mp)
       setPriceSources(ps)
 
