@@ -51,7 +51,7 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
     const opCode = (parts[2] || '').trim().toUpperCase()
     const ticker = extractTickerFromBoleto(d)
 
-    if (['COMPRA', 'SCOMP', 'COMPRA-MEP'].includes(opCode)) {
+    if (['COMPRA', 'SCOMP', 'COMPRA-MEP', 'COMPRACPRM'].includes(opCode)) {
       return { type: 'COMPRA', ticker, isECF: false }
     }
     if (['VENTA', 'SVENTA', 'VENTA-MEP'].includes(opCode)) {

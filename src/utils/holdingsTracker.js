@@ -23,11 +23,18 @@ function isStaticBond(ticker) {
   return false
 }
 
-export function buildPortfolioState(ops) {
+export function buildPortfolioState(ops, mepRatesFromOps = {}) {
   // Filter out ignored ops, sort by settlement date (or trade date)
   const active = ops
     .filter((op) => op.type !== 'IGNORAR')
     .sort((a, b) => (a.settlementDate || a.date).localeCompare(b.settlementDate || b.date))
+
+  // Helper: look up closest MEP rate on or before a given date
+  const mepDates = Object.keys(mepRatesFromOps).sort()
+  function lookupMEP(date) {
+    const prior = mepDates.filter((d) => d <= date).at(-1)
+    return prior ? mepRatesFromOps[prior] : null
+  }
 
   let arsBalance = 0
   let usdBalance = 0
@@ -48,15 +55,17 @@ export function buildPortfolioState(ops) {
     // Record known price from the operation — always store in ARS
     if (op.ticker && price && price > 0) {
       let arsPrice = price
-      if (isUSD && op.tipoCambio > 1) {
+      if (isUSD) {
+        // Use tipoCambio from the row if it's a real rate (> 1), otherwise look up MEP
+        const tc = op.tipoCambio > 1 ? op.tipoCambio : (lookupMEP(op.date) ?? 1)
         // Convert USD price to ARS equivalent:
-        //  - FCI cuotaparte: precio is USD per unit (e.g., 1.06) → arsPrice = precio × TC
-        //  - Bond/ON:        precio is % of par (e.g., 67.0)     → arsPrice = (precio/100) × TC
+        //  - FCI / USD-at-par: precio is USD per unit (e.g., 1.06) → arsPrice = precio × TC
+        //  - Bond/ON:          precio is % of par (e.g., 67.0)     → arsPrice = (precio/100) × TC
         if (price < 5) {
-          arsPrice = price * op.tipoCambio          // FCI / absolute USD price
+          arsPrice = price * tc          // FCI / absolute USD price (e.g., LOC6O at par = 1.0)
         } else {
-          arsPrice = (price / 100) * op.tipoCambio  // Bond % of par
-          bondTickers.add(op.ticker)                // Mark as bond
+          arsPrice = (price / 100) * tc  // Bond % of par
+          bondTickers.add(op.ticker)     // Mark as bond
         }
       }
       if (!knownPrices[op.ticker]) knownPrices[op.ticker] = []

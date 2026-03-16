@@ -13,18 +13,29 @@ function fmt(n, dec = 2) {
   return n.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
-/** Convert operation price to ARS per unit, same logic as holdingsTracker */
-function toARSPrice(op) {
+/**
+ * Convert operation price to ARS per unit.
+ * Mirrors the logic in holdingsTracker — always returns ARS.
+ *
+ * For USD-section ops: use tipoCambio when it's a real rate (> 1),
+ * otherwise fall back to mepRate (handles licitación primaria where TC ≤ 1).
+ */
+function toARSPrice(op, mepRate) {
   const price = op.precio
+  const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
   if (!price || price <= 0) {
     const qty = Math.abs(op.valorNominal ?? 0)
-    return qty > 0 ? Math.abs(op.importeNeto ?? 0) / qty : 0
+    if (!qty) return 0
+    const unitPrice = Math.abs(op.importeNeto ?? 0) / qty
+    // importeNeto for USD-section ops is in USD → convert to ARS
+    return isUSD ? unitPrice * (mepRate ?? 1) : unitPrice
   }
-  const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
-  if (isUSD && (op.tipoCambio ?? 1) > 1) {
+  if (isUSD) {
+    // Use tipoCambio from the row when it's a real ARS/USD rate; otherwise use current mepRate
+    const tc = (op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1)
     return price < 5
-      ? price * op.tipoCambio          // FCI (cuotaparte USD)
-      : (price / 100) * op.tipoCambio  // Bond % of par
+      ? price * tc          // FCI / USD-at-par (e.g. LOC6O = 1.0 USD/unit)
+      : (price / 100) * tc  // Bond % of par
   }
   return price // ARS section: direct price
 }
@@ -66,7 +77,7 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate) 
     for (const op of buys) {
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
-      totalCostARS += qty * toARSPrice(op)
+      totalCostARS += qty * toARSPrice(op, mepRate)
       totalQtyBought += qty
     }
     if (totalQtyBought === 0) continue
@@ -78,7 +89,7 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate) 
     for (const op of sells) {
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
-      totalSaleARS += qty * toARSPrice(op)
+      totalSaleARS += qty * toARSPrice(op, mepRate)
       totalQtySold += qty
     }
     const avgSellPriceARS = totalQtySold > 0 ? totalSaleARS / totalQtySold : null

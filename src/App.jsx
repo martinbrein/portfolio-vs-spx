@@ -50,7 +50,7 @@ export default function App() {
       const { ops: parsedOps, mepRatesFromOps } = await parseAllariaXLS(file)
       setOps(parsedOps)
 
-      const state = buildPortfolioState(parsedOps)
+      const state = buildPortfolioState(parsedOps, mepRatesFromOps)
       setPortfolioResult(state)
 
       const tickers = extractTickers(parsedOps)
