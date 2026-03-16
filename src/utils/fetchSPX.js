@@ -4,25 +4,31 @@ function fetchWithTimeout(url, ms) {
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id))
 }
 
-export async function fetchSPXData(startDate, endDate) {
+/**
+ * Fetch daily price history for any Yahoo Finance symbol.
+ * Uses the /api/spx serverless proxy (works in production).
+ * Falls back to CORS proxies in local dev.
+ */
+export async function fetchIndexData(symbol, startDate, endDate) {
   const p1 = Math.floor(new Date(startDate).getTime() / 1000)
   const end = new Date(endDate)
   end.setDate(end.getDate() + 5)
   const p2 = Math.floor(end.getTime() / 1000)
 
-  // 1. Try Vercel serverless function (works in production)
+  // 1. Try Vercel serverless function
   try {
-    const res = await fetchWithTimeout(`/api/spx?p1=${p1}&p2=${p2}`, 10000)
+    const res = await fetchWithTimeout(
+      `/api/spx?p1=${p1}&p2=${p2}&symbol=${encodeURIComponent(symbol)}`,
+      10000
+    )
     if (res.ok) {
       const json = await res.json()
       if (json?.chart?.result?.[0]) return parseYahooResponse(json)
     }
-  } catch (_) {
-    // Falls through to CORS proxy fallback (local dev)
-  }
+  } catch (_) {}
 
-  // 2. Fallback: CORS proxies for local development
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?period1=${p1}&period2=${p2}&interval=1d&events=history`
+  // 2. CORS proxy fallback (local dev)
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d&events=history`
   const proxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
     `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
@@ -39,7 +45,12 @@ export async function fetchSPXData(startDate, endDate) {
     }
   }
 
-  throw new Error('No se pudo obtener datos del S&P 500. Verificá tu conexión a internet.')
+  throw new Error(`No se pudo obtener datos para ${symbol}.`)
+}
+
+/** Backward-compat alias */
+export async function fetchSPXData(startDate, endDate) {
+  return fetchIndexData('^GSPC', startDate, endDate)
 }
 
 function parseYahooResponse(json) {

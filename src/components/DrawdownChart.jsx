@@ -32,7 +32,7 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
-export default function DrawdownChart({ data, days }) {
+export default function DrawdownChart({ data, days, benchmarkLabel = 'S&P 500' }) {
   if (!data?.length) return null
   const interval = Math.max(1, Math.floor(data.length / 8))
 
@@ -59,7 +59,7 @@ export default function DrawdownChart({ data, days }) {
           <Tooltip content={<CustomTooltip />} />
           <Legend
             wrapperStyle={{ color: '#94a3b8', fontSize: 13 }}
-            formatter={(val) => val === 'portfolio' ? 'Portfolio' : 'S&P 500'}
+            formatter={(val) => val === 'portfolio' ? 'Portfolio' : benchmarkLabel}
           />
           <Area
             type="monotone"

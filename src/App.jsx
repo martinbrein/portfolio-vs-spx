@@ -9,20 +9,55 @@ import PortfolioValueChart from './components/PortfolioValueChart'
 import DrawdownChart from './components/DrawdownChart'
 import MetricsGrid from './components/MetricsGrid'
 import PeriodSelector from './components/PeriodSelector'
+import IndexSelector from './components/IndexSelector'
 
 import { parseAllariaXLS } from './utils/parseAllaria'
 import { buildPortfolioState, extractTickers } from './utils/holdingsTracker'
 import { fetchAllPrices } from './utils/fetchArgPrices'
 import { fetchMEPRates, fillMEPRates } from './utils/fetchMEP'
-import { fetchSPXData } from './utils/fetchSPX'
+import { fetchIndexData } from './utils/fetchSPX'
 import { buildDailyValues, calcTWR } from './utils/calcTWR'
 import { calcMetrics, buildDrawdownData, filterByPeriod } from './utils/calculations'
+import { INDICES } from './utils/indices'
 
-const TABS = ['Operaciones', 'Cartera', 'Rendimiento', 'TWR vs SPX']
+const TABS = ['Operaciones', 'Cartera', 'Rendimiento', 'TWR vs Índice']
 
 function fmt(n, dec = 2) {
   if (n == null || isNaN(n)) return '—'
   return n.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+}
+
+/** Align TWR series with a benchmark index and normalise both to % return */
+async function alignBenchmark(twr, indexKey, mepRatesMap) {
+  const { symbol } = INDICES[indexKey]
+  const rawData = await fetchIndexData(symbol, twr[0].date, twr.at(-1).date)
+
+  // Merval: convert ARS prices → USD using MEP rate
+  let finalData = rawData
+  if (indexKey === 'MERVAL') {
+    const mepSorted = Object.keys(mepRatesMap).sort()
+    finalData = rawData.map((d) => {
+      const prior = mepSorted.filter((md) => md <= d.date).at(-1)
+      const mep = prior ? mepRatesMap[prior] : null
+      return mep ? { date: d.date, value: d.value / mep } : null
+    }).filter(Boolean)
+  }
+
+  const dataMap = new Map(finalData.map((d) => [d.date, d.value]))
+  const dataDates = finalData.map((d) => d.date).sort()
+
+  const aligned = twr.map((t) => {
+    let val = dataMap.get(t.date)
+    if (!val) {
+      const before = dataDates.filter((d) => d <= t.date)
+      if (before.length > 0) val = dataMap.get(before.at(-1))
+    }
+    return val != null ? { date: t.date, portfolio: t.twr, spx: val } : null
+  }).filter(Boolean)
+
+  if (aligned.length < 2) return null
+  const base = aligned[0].spx
+  return aligned.map((d) => ({ ...d, spx: (d.spx / base - 1) * 100 }))
 }
 
 export default function App() {
@@ -34,12 +69,15 @@ export default function App() {
   const [mepRates, setMepRates] = useState({})
   const [netContributions, setNetContributions] = useState(null)
   const [dailyValues, setDailyValues] = useState(null)
+  const [twrData, setTwrData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingStep, setLoadingStep] = useState('')
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false)
   const [error, setError] = useState(null)
   const [fileName, setFileName] = useState(null)
   const [activeTab, setActiveTab] = useState(0)
   const [period, setPeriod] = useState('MAX')
+  const [benchmarkIndex, setBenchmarkIndex] = useState('SPX')
 
   async function handleFile(file) {
     setLoading(true)
@@ -84,26 +122,12 @@ export default function App() {
       setNetContributions(netContributionsUSD)
       const twr = calcTWR(dailyValues, state.ecfEvents)
 
-      // Step 5: Fetch SPX and align
+      // Step 5: Fetch benchmark index and align
       if (twr.length >= 2) {
-        setLoadingStep('Obteniendo datos del S&P 500...')
-        const spx = await fetchSPXData(twr[0].date, twr.at(-1).date)
-        const spxMap = new Map(spx.map((d) => [d.date, d.value]))
-        const spxDates = spx.map((d) => d.date).sort()
-
-        const aligned = twr.map((t) => {
-          let spxVal = spxMap.get(t.date)
-          if (!spxVal) {
-            const before = spxDates.filter((d) => d <= t.date)
-            if (before.length > 0) spxVal = spxMap.get(before.at(-1))
-          }
-          return spxVal != null ? { date: t.date, portfolio: t.twr, spx: spxVal } : null
-        }).filter(Boolean)
-
-        if (aligned.length >= 2) {
-          const spxBase = aligned[0].spx
-          setSpxAligned(aligned.map((d) => ({ ...d, spx: (d.spx / spxBase - 1) * 100 })))
-        }
+        setTwrData(twr)
+        setLoadingStep(`Obteniendo datos de ${INDICES[benchmarkIndex].label}...`)
+        const aligned = await alignBenchmark(twr, benchmarkIndex, filledMEP)
+        if (aligned) setSpxAligned(aligned)
       }
 
       setFileName(file.name)
@@ -113,6 +137,20 @@ export default function App() {
     } finally {
       setLoading(false)
       setLoadingStep('')
+    }
+  }
+
+  async function handleBenchmarkChange(newIndex) {
+    if (!twrData || twrData.length < 2) return
+    setBenchmarkIndex(newIndex)
+    setBenchmarkLoading(true)
+    try {
+      const aligned = await alignBenchmark(twrData, newIndex, mepRates)
+      if (aligned) setSpxAligned(aligned)
+    } catch (_) {
+      // keep current benchmark on error
+    } finally {
+      setBenchmarkLoading(false)
     }
   }
 
@@ -154,15 +192,23 @@ export default function App() {
       <header className="bg-slate-800/80 backdrop-blur border-b border-slate-700 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-base font-bold text-white">Portfolio vs S&P 500</h1>
+            <h1 className="text-base font-bold text-white">
+              Portfolio vs {INDICES[benchmarkIndex].label}
+            </h1>
             <p className="text-slate-400 text-xs">
               {fileName} · {ops.filter((o) => o.type !== 'IGNORAR').length} operaciones
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {activeTab === 3 && <PeriodSelector selected={period} onChange={setPeriod} />}
+          <div className="flex items-center gap-3 flex-wrap">
+            {activeTab === 3 && (
+              <>
+                <IndexSelector selected={benchmarkIndex} onChange={handleBenchmarkChange} loading={benchmarkLoading} />
+                <div className="w-px h-5 bg-slate-700" />
+                <PeriodSelector selected={period} onChange={setPeriod} />
+              </>
+            )}
             <button
-              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null); setDailyValues(null) }}
+              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null); setDailyValues(null); setTwrData(null) }}
               className="text-slate-400 hover:text-white text-sm border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1 transition-colors"
             >
               Cambiar archivo
@@ -230,9 +276,9 @@ export default function App() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
                   {[
                     { label: 'TWR Portfolio', value: `${portReturn >= 0 ? '+' : ''}${portReturn.toFixed(2)}%`, cls: portReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.portfolio.cagr?.toFixed(1) ?? '—'}%` },
-                    { label: 'S&P 500', value: `${spxReturn >= 0 ? '+' : ''}${spxReturn.toFixed(2)}%`, cls: spxReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.spx.cagr?.toFixed(1) ?? '—'}%` },
+                    { label: INDICES[benchmarkIndex].label, value: `${spxReturn >= 0 ? '+' : ''}${spxReturn.toFixed(2)}%`, cls: spxReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.spx.cagr?.toFixed(1) ?? '—'}%` },
                     { label: 'Exceso', value: `${(portReturn - spxReturn) >= 0 ? '+' : ''}${(portReturn - spxReturn).toFixed(2)}%`, cls: (portReturn - spxReturn) >= 0 ? 'text-green-400' : 'text-red-400', sub: `Alpha ${metrics?.comparison.alpha?.toFixed(1) ?? '—'}%` },
-                    { label: 'Sharpe', value: metrics?.portfolio.sharpe?.toFixed(2) ?? '—', cls: (metrics?.portfolio.sharpe ?? 0) >= 1 ? 'text-green-400' : 'text-yellow-400', sub: `vs SPX ${metrics?.spx.sharpe?.toFixed(2) ?? '—'}` },
+                    { label: 'Sharpe', value: metrics?.portfolio.sharpe?.toFixed(2) ?? '—', cls: (metrics?.portfolio.sharpe ?? 0) >= 1 ? 'text-green-400' : 'text-yellow-400', sub: `vs idx ${metrics?.spx.sharpe?.toFixed(2) ?? '—'}` },
                     { label: 'Aportes netos', value: netContributions != null ? `US$ ${fmt(netContributions, 0)}` : '—', cls: 'text-slate-300', sub: 'depósitos − retiros (MEP)' },
                   ].map(({ label, value, cls, sub }) => (
                     <div key={label} className="bg-slate-800 rounded-2xl p-5">
@@ -244,10 +290,10 @@ export default function App() {
                 </div>
                 <div className="flex flex-col gap-4 mb-6">
                   <PortfolioValueChart dailyValues={dailyValues} />
-                  <CumulativeChart data={filteredAligned} days={days} />
-                  <DrawdownChart data={drawdownData} days={days} />
+                  <CumulativeChart data={filteredAligned} days={days} benchmarkLabel={INDICES[benchmarkIndex].label} />
+                  <DrawdownChart data={drawdownData} days={days} benchmarkLabel={INDICES[benchmarkIndex].label} />
                 </div>
-                <MetricsGrid metrics={metrics} />
+                <MetricsGrid metrics={metrics} benchmarkLabel={INDICES[benchmarkIndex].label} />
               </>
             )}
           </>

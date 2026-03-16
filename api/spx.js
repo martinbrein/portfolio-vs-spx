@@ -1,10 +1,10 @@
 export default async function handler(req, res) {
-  const { p1, p2 } = req.query
+  const { p1, p2, symbol = '^GSPC' } = req.query
   if (!p1 || !p2) {
     return res.status(400).json({ error: 'Missing p1 or p2 params' })
   }
 
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?period1=${p1}&period2=${p2}&interval=1d&events=history`
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d&events=history`
 
   try {
     const response = await fetch(url, {

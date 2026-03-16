@@ -26,7 +26,7 @@ function Row({ label, portfolio, spx, portClass, spxClass }) {
   )
 }
 
-export default function MetricsGrid({ metrics }) {
+export default function MetricsGrid({ metrics, benchmarkLabel = 'S&P 500' }) {
   if (!metrics) return null
   const { portfolio: p, spx: s, comparison: c } = metrics
 
@@ -40,7 +40,7 @@ export default function MetricsGrid({ metrics }) {
             <tr className="border-b border-slate-700">
               <th className="pb-2 text-left text-xs text-slate-500 uppercase tracking-wider">Métrica</th>
               <th className="pb-2 text-right text-xs text-blue-400 uppercase tracking-wider">Portfolio</th>
-              <th className="pb-2 text-right text-xs text-orange-400 uppercase tracking-wider">S&P 500</th>
+              <th className="pb-2 text-right text-xs text-orange-400 uppercase tracking-wider">{benchmarkLabel}</th>
             </tr>
           </thead>
           <tbody>
