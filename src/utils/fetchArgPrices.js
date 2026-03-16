@@ -110,10 +110,9 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
  */
 export async function fetchTickerPrices(ticker, startDate, endDate, isBond = false) {
   // Try Yahoo Finance first
-  const { prices: yahooPrices, quoteType } = await fetchYahooPrices(ticker, startDate, endDate)
+  const { prices: yahooPrices } = await fetchYahooPrices(ticker, startDate, endDate)
   if (Object.keys(yahooPrices).length > 0) {
-    const bond = isBond || quoteType !== 'EQUITY'
-    const prices = bond
+    const prices = isBond
       ? Object.fromEntries(Object.entries(yahooPrices).map(([d, p]) => [d, p / 100]))
       : yahooPrices
     return { prices, source: 'yahoo' }
