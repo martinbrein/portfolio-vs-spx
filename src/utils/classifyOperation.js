@@ -110,8 +110,8 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
     return { type: 'RETIRO', ticker: null, isECF: true, ecfDirection: 'OUT' }
   }
 
-  // Deposito / Ingreso / Acreditacion
-  if (/acreditaci[oó]n/i.test(d) || /ingreso/i.test(d) || /dep[oó]sito/i.test(d)) {
+  // Deposito / Ingreso / Acreditacion / Recibo de Cobro
+  if (/acreditaci[oó]n/i.test(d) || /ingreso/i.test(d) || /dep[oó]sito/i.test(d) || /recibo\s*de\s*cobro/i.test(d)) {
     return { type: 'DEPOSITO', ticker: null, isECF: true, ecfDirection: 'IN' }
   }
 
