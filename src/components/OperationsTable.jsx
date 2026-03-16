@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { OPERATION_LABELS, OPERATION_COLORS } from '../utils/classifyOperation'
 
-const TYPE_FILTERS = ['Todos', 'COMPRA', 'VENTA', 'SUSCRIPCION', 'RESCATE', 'DIVIDENDO', 'CUPON', 'AMORTIZACION', 'DEPOSITO', 'RETIRO']
+const TYPE_FILTERS = ['Todos', 'COMPRA', 'VENTA', 'CAUCION', 'SUSCRIPCION', 'RESCATE', 'DIVIDENDO', 'CUPON', 'AMORTIZACION', 'DEPOSITO', 'RETIRO']
 
 function fmt(n, dec = 2) {
   if (n == null) return '—'
@@ -13,7 +13,7 @@ export default function OperationsTable({ ops }) {
   const [search, setSearch] = useState('')
 
   const visible = ops
-    .filter((op) => op.type !== 'IGNORAR' && op.type !== 'CAUCION')
+    .filter((op) => op.type !== 'IGNORAR')
     .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
     .filter((op) => filter === 'Todos' || op.type === filter)
     .filter((op) => {
