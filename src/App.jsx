@@ -4,6 +4,7 @@ import OperationsTable from './components/OperationsTable'
 import PortfolioTab from './components/PortfolioTab'
 import CaucionesTab from './components/CaucionesTab'
 import CumulativeChart from './components/CumulativeChart'
+import PortfolioValueChart from './components/PortfolioValueChart'
 import DrawdownChart from './components/DrawdownChart'
 import MetricsGrid from './components/MetricsGrid'
 import PeriodSelector from './components/PeriodSelector'
@@ -31,6 +32,7 @@ export default function App() {
   const [priceSources, setPriceSources] = useState({})
   const [mepRates, setMepRates] = useState({})
   const [netContributions, setNetContributions] = useState(null)
+  const [dailyValues, setDailyValues] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingStep, setLoadingStep] = useState('')
   const [error, setError] = useState(null)
@@ -77,6 +79,7 @@ export default function App() {
       const { dailyValues, netContributionsUSD } = buildDailyValues(
         state.stateByDate, filledMEP, mp, state.knownPrices, state.ecfEvents
       )
+      setDailyValues(dailyValues)
       setNetContributions(netContributionsUSD)
       const twr = calcTWR(dailyValues, state.ecfEvents)
 
@@ -158,7 +161,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             {activeTab === 2 && <PeriodSelector selected={period} onChange={setPeriod} />}
             <button
-              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null) }}
+              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null); setDailyValues(null) }}
               className="text-slate-400 hover:text-white text-sm border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1 transition-colors"
             >
               Cambiar archivo
@@ -227,6 +230,7 @@ export default function App() {
                   ))}
                 </div>
                 <div className="flex flex-col gap-4 mb-6">
+                  <PortfolioValueChart dailyValues={dailyValues} />
                   <CumulativeChart data={filteredAligned} days={days} />
                   <DrawdownChart data={drawdownData} days={days} />
                 </div>

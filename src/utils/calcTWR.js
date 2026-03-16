@@ -1,19 +1,51 @@
 import { interpolatePrice } from './holdingsTracker'
 
 /**
+ * Generate all weekday dates (Mon–Fri) between two dates inclusive.
+ */
+function generateBusinessDays(startDate, endDate) {
+  const dates = []
+  const cur = new Date(startDate + 'T12:00:00Z')
+  const end = new Date(endDate + 'T12:00:00Z')
+  while (cur <= end) {
+    const day = cur.getUTCDay()
+    if (day !== 0 && day !== 6) {
+      dates.push(cur.toISOString().split('T')[0])
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1)
+  }
+  return dates
+}
+
+/**
+ * For each ticker, forward-fill market prices so every date in `dates`
+ * has the most recent available price (avoids gaps on weekends/holidays).
+ * Returns { ticker: { date: price } }
+ */
+function forwardFillPrices(marketPrices, dates) {
+  const filled = {}
+  for (const [ticker, prices] of Object.entries(marketPrices ?? {})) {
+    const sortedPriceDates = Object.keys(prices).sort()
+    filled[ticker] = {}
+    let lastPrice = null
+    for (const date of dates) {
+      // Find latest price date <= this date
+      const prior = sortedPriceDates.filter((d) => d <= date).at(-1)
+      if (prior != null) lastPrice = prices[prior]
+      if (lastPrice != null) filled[ticker][date] = lastPrice
+    }
+  }
+  return filled
+}
+
+/**
  * Calculate portfolio value in USD on a given date.
  * - ARS cash → converted via MEP rate
  * - USD cash → direct
- * - Holdings → valued using marketPrices[ticker][date] or interpolated from knownPrices
- *
- * @param {object} state - { arsBalance, usdBalance, holdings }
- * @param {string} date
- * @param {number} mepRate - ARS per USD on that date
- * @param {object} marketPrices - { ticker: { date: priceARS } }
- * @param {object} knownPrices - { ticker: [{date, price}] } from operations
- * @returns {{ value: number, hasAllPrices: boolean }|null}
+ * - Holdings → valued using filledMarketPrices (already forward-filled)
+ *              falls back to knownPrices interpolation if no market price
  */
-export function calcPortfolioValue(state, date, mepRate, marketPrices, knownPrices) {
+export function calcPortfolioValue(state, date, mepRate, filledMarketPrices, knownPrices) {
   if (!mepRate || mepRate <= 0) return null
 
   let totalARS = state.arsBalance ?? 0
@@ -23,8 +55,8 @@ export function calcPortfolioValue(state, date, mepRate, marketPrices, knownPric
   for (const [ticker, qty] of Object.entries(state.holdings ?? {})) {
     if (qty <= 0) continue
 
-    // Try market price first, then interpolate from known op prices
-    let priceARS = marketPrices?.[ticker]?.[date]
+    // Try forward-filled market price first, then interpolate from known op prices
+    let priceARS = filledMarketPrices?.[ticker]?.[date]
 
     if (priceARS == null) {
       priceARS = interpolatePrice(ticker, date, knownPrices)
@@ -32,7 +64,7 @@ export function calcPortfolioValue(state, date, mepRate, marketPrices, knownPric
 
     if (priceARS == null) {
       hasAllPrices = false
-      continue // Skip this holding
+      continue
     }
 
     totalARS += qty * priceARS
@@ -43,86 +75,35 @@ export function calcPortfolioValue(state, date, mepRate, marketPrices, knownPric
 }
 
 /**
- * Calculate Time Weighted Return.
+ * Build a DAILY portfolio value series — one entry per business day.
  *
- * Each sub-period: [ECF_date_i, ECF_date_{i+1}]
- *   R_i = V_pre_ECF(end) / V_post_ECF(start) - 1
- *
- * V_pre_ECF is stored in dailyValues[date].preECFValueUSD (computed in buildDailyValues).
- * This eliminates the distortion caused by cash inflows/outflows.
- *
- * @param {Array} dailyValues - [{date, valueUSD, preECFValueUSD?}] sorted by date
- * @param {Array} ecfEvents - [{date, direction, amountARS, amountUSD}]
- * @returns {Array} [{date, twr}]
- */
-export function calcTWR(dailyValues, ecfEvents) {
-  if (!dailyValues || dailyValues.length < 2) return []
-
-  const valueMap = {}    // post-ECF (or plain) value
-  const preECFMap = {}   // pre-ECF value, only set for ECF dates
-
-  for (const dv of dailyValues) {
-    valueMap[dv.date] = dv.valueUSD
-    if (dv.preECFValueUSD != null) preECFMap[dv.date] = dv.preECFValueUSD
-  }
-
-  const sortedDates = dailyValues.map((d) => d.date).sort()
-
-  // Build sub-period boundaries from ECF dates
-  const boundaries = [sortedDates[0], ...ecfEvents.map((e) => e.date), sortedDates.at(-1)]
-    .filter((d, i, arr) => arr.indexOf(d) === i)
-    .sort()
-
-  const twrSeries = []
-  let cumulativeTWR = 1
-
-  for (let i = 0; i < boundaries.length - 1; i++) {
-    const startDate = boundaries[i]
-    const endDate = boundaries[i + 1]
-
-    // startValue: value AFTER any ECF on startDate (post-ECF = capital being invested)
-    const startValue = valueMap[startDate]
-
-    // endValue: value BEFORE any ECF on endDate (pre-ECF = pure performance, no flow distortion)
-    // For the last boundary we use the plain value (no next ECF to exclude)
-    const endValue = preECFMap[endDate] != null ? preECFMap[endDate] : valueMap[endDate]
-
-    if (!startValue || !endValue || startValue <= 0) continue
-
-    const subPeriodReturn = endValue / startValue - 1
-    cumulativeTWR *= 1 + subPeriodReturn
-
-    twrSeries.push({
-      date: endDate,
-      twr: (cumulativeTWR - 1) * 100,
-      subPeriodReturn: subPeriodReturn * 100,
-    })
-  }
-
-  // Build full daily TWR series — carry forward last known value
-  const twrByDate = {}
-  for (const t of twrSeries) twrByDate[t.date] = t.twr
-
-  const result = []
-  let lastTWR = 0
-  for (const date of sortedDates) {
-    if (twrByDate[date] !== undefined) lastTWR = twrByDate[date]
-    result.push({ date, twr: lastTWR })
-  }
-
-  return result
-}
-
-/**
- * Build daily portfolio values array from state snapshots + prices.
- * For ECF dates, also computes the pre-ECF value (portfolio value before the cash flow),
- * which is required for correct TWR sub-period calculations.
+ * Key change vs previous version: instead of only valuing on operation dates,
+ * we generate every weekday between start and end, carry-forward the last known
+ * portfolio state, and price holdings using forward-filled market prices.
+ * This gives the dense daily series needed for a proper SPX comparison.
  *
  * @returns {{ dailyValues: Array, netContributionsUSD: number }}
- *   netContributionsUSD: total deposits minus withdrawals, each converted to USD at that day's MEP
+ *   dailyValues: [{ date, valueUSD, preECFValueUSD?, hasAllPrices }]
  */
 export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrices, ecfEvents = []) {
-  const dates = Object.keys(stateByDate).sort()
+  const opDates = Object.keys(stateByDate).sort()
+  if (opDates.length === 0) return { dailyValues: [], netContributionsUSD: 0 }
+
+  const startDate = opDates[0]
+  const endDate = opDates.at(-1)
+
+  // All business days in range
+  const allDays = generateBusinessDays(startDate, endDate)
+
+  // Forward-fill market prices onto every business day (O(n) per ticker, done once)
+  const filledPrices = forwardFillPrices(marketPrices, allDays)
+
+  // Forward-fill MEP rates
+  const mepSorted = Object.keys(mepRates).sort()
+  function getMEP(date) {
+    const prior = mepSorted.filter((d) => d <= date).at(-1)
+    return prior ? mepRates[prior] : null
+  }
 
   // Group ECF events by date
   const ecfByDate = {}
@@ -133,14 +114,22 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
 
   const result = []
   let netContributionsUSD = 0
+  let currentState = null
 
-  for (const date of dates) {
-    const state = stateByDate[date]
-    const mepRate = mepRates[date] ?? findNearestMEP(mepRates, date)
+  for (const date of allDays) {
+    // Update current portfolio state if there's an operation snapshot for this date
+    if (stateByDate[date]) {
+      currentState = stateByDate[date]
+    }
+    if (!currentState) continue
+
+    const mepRate = getMEP(date)
     if (!mepRate) continue
 
-    const { value, hasAllPrices } = calcPortfolioValue(state, date, mepRate, marketPrices, knownPrices) ?? {}
-    if (value == null) continue
+    const calc = calcPortfolioValue(currentState, date, mepRate, filledPrices, knownPrices)
+    if (!calc || calc.value == null) continue
+
+    const { value, hasAllPrices } = calc
 
     // Compute pre-ECF value and accumulate net contributions for ECF dates
     let preECFValueUSD = null
@@ -157,7 +146,6 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
           netContributionsUSD -= flowUSD
         }
       }
-      // Pre-ECF value = post-ECF value minus the net cash flow added that day
       preECFValueUSD = value - netFlowUSD
     }
 
@@ -167,8 +155,67 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
   return { dailyValues: result, netContributionsUSD }
 }
 
-function findNearestMEP(mepRates, date) {
-  const dates = Object.keys(mepRates).sort()
-  const before = dates.filter((d) => d <= date)
-  return before.length > 0 ? mepRates[before.at(-1)] : null
+/**
+ * Calculate Time Weighted Return.
+ *
+ * Each sub-period: [ECF_date_i, ECF_date_{i+1}]
+ *   R_i = V_pre_ECF(end) / V_post_ECF(start) - 1
+ *
+ * V_pre_ECF eliminates the distortion caused by cash inflows/outflows.
+ *
+ * @param {Array} dailyValues - [{date, valueUSD, preECFValueUSD?}] sorted by date
+ * @param {Array} ecfEvents   - [{date, direction, amountARS, amountUSD}]
+ * @returns {Array} [{date, twr}] — one entry per day in dailyValues
+ */
+export function calcTWR(dailyValues, ecfEvents) {
+  if (!dailyValues || dailyValues.length < 2) return []
+
+  const valueMap = {}   // post-ECF (or plain) value by date
+  const preECFMap = {}  // pre-ECF value, only set for ECF dates
+
+  for (const dv of dailyValues) {
+    valueMap[dv.date] = dv.valueUSD
+    if (dv.preECFValueUSD != null) preECFMap[dv.date] = dv.preECFValueUSD
+  }
+
+  const sortedDates = dailyValues.map((d) => d.date).sort()
+  const ecfDateSet = new Set(ecfEvents.map((e) => e.date))
+
+  // Sub-period boundaries: first date + all ECF dates + last date
+  const boundaries = [sortedDates[0], ...ecfEvents.map((e) => e.date), sortedDates.at(-1)]
+    .filter((d, i, arr) => arr.indexOf(d) === i)
+    .sort()
+
+  // Map from boundary-end-date → cumulative TWR at that boundary
+  const twrAtBoundary = {}
+  let cumulativeTWR = 1
+
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const startDate = boundaries[i]
+    const endDate = boundaries[i + 1]
+
+    // Start: post-ECF value (capital being invested)
+    const startValue = valueMap[startDate]
+    // End: pre-ECF value if there's a flow on that date, else plain value
+    const endValue = (ecfDateSet.has(endDate) && preECFMap[endDate] != null)
+      ? preECFMap[endDate]
+      : valueMap[endDate]
+
+    if (!startValue || !endValue || startValue <= 0) continue
+
+    cumulativeTWR *= (endValue / startValue)
+    twrAtBoundary[endDate] = cumulativeTWR
+  }
+
+  // Build full daily TWR series — carry forward last known TWR value
+  const result = []
+  let lastTWR = 0
+  for (const date of sortedDates) {
+    if (twrAtBoundary[date] !== undefined) {
+      lastTWR = (twrAtBoundary[date] - 1) * 100
+    }
+    result.push({ date, twr: lastTWR })
+  }
+
+  return result
 }
