@@ -282,6 +282,7 @@ export default function App() {
             knownPrices={portfolioResult.knownPrices}
             finalHoldings={portfolioResult.finalHoldings}
             mepRate={currentMEP}
+            mepRates={mepRates}
             arsBalance={portfolioResult.finalARS}
             usdBalance={portfolioResult.finalUSD}
             portfolioValueUSD={dailyValues?.at(-1)?.valueUSD ?? null}
