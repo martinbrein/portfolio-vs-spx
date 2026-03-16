@@ -17,6 +17,11 @@ import { calcMetrics, buildDrawdownData, filterByPeriod } from './utils/calculat
 
 const TABS = ['Operaciones', 'Cartera', 'TWR vs SPX']
 
+function fmt(n, dec = 2) {
+  if (n == null || isNaN(n)) return '—'
+  return n.toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+}
+
 export default function App() {
   const [ops, setOps] = useState(null)
   const [portfolioResult, setPortfolioResult] = useState(null)
@@ -24,6 +29,7 @@ export default function App() {
   const [marketPrices, setMarketPrices] = useState({})
   const [priceSources, setPriceSources] = useState({})
   const [mepRates, setMepRates] = useState({})
+  const [netContributions, setNetContributions] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingStep, setLoadingStep] = useState('')
   const [error, setError] = useState(null)
@@ -61,14 +67,16 @@ export default function App() {
       // Step 3: Fetch MEP rates (merge: fetched > XLS-extracted as fallback)
       setLoadingStep('Obteniendo tipo de cambio MEP...')
       const rawMEP = await fetchMEPRates(startDate, endDate)
-      // Merge: ops-extracted rates as base, fetched rates override if available
       const mergedMEP = { ...mepRatesFromOps, ...rawMEP }
       const filledMEP = fillMEPRates(mergedMEP, dates)
       setMepRates(filledMEP)
 
       // Step 4: Build daily values + TWR
       setLoadingStep('Calculando TWR...')
-      const dailyValues = buildDailyValues(state.stateByDate, filledMEP, mp, state.knownPrices)
+      const { dailyValues, netContributionsUSD } = buildDailyValues(
+        state.stateByDate, filledMEP, mp, state.knownPrices, state.ecfEvents
+      )
+      setNetContributions(netContributionsUSD)
       const twr = calcTWR(dailyValues, state.ecfEvents)
 
       // Step 5: Fetch SPX and align
@@ -149,7 +157,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             {activeTab === 2 && <PeriodSelector selected={period} onChange={setPeriod} />}
             <button
-              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}) }}
+              onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null) }}
               className="text-slate-400 hover:text-white text-sm border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1 transition-colors"
             >
               Cambiar archivo
@@ -202,12 +210,13 @@ export default function App() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
                   {[
                     { label: 'TWR Portfolio', value: `${portReturn >= 0 ? '+' : ''}${portReturn.toFixed(2)}%`, cls: portReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.portfolio.cagr?.toFixed(1) ?? '—'}%` },
                     { label: 'S&P 500', value: `${spxReturn >= 0 ? '+' : ''}${spxReturn.toFixed(2)}%`, cls: spxReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.spx.cagr?.toFixed(1) ?? '—'}%` },
                     { label: 'Exceso', value: `${(portReturn - spxReturn) >= 0 ? '+' : ''}${(portReturn - spxReturn).toFixed(2)}%`, cls: (portReturn - spxReturn) >= 0 ? 'text-green-400' : 'text-red-400', sub: `Alpha ${metrics?.comparison.alpha?.toFixed(1) ?? '—'}%` },
                     { label: 'Sharpe', value: metrics?.portfolio.sharpe?.toFixed(2) ?? '—', cls: (metrics?.portfolio.sharpe ?? 0) >= 1 ? 'text-green-400' : 'text-yellow-400', sub: `vs SPX ${metrics?.spx.sharpe?.toFixed(2) ?? '—'}` },
+                    { label: 'Aportes netos', value: netContributions != null ? `US$ ${fmt(netContributions, 0)}` : '—', cls: 'text-slate-300', sub: 'depósitos − retiros (MEP)' },
                   ].map(({ label, value, cls, sub }) => (
                     <div key={label} className="bg-slate-800 rounded-2xl p-5">
                       <p className="text-slate-400 text-xs mb-1">{label}</p>
