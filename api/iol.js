@@ -38,10 +38,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  const { ticker, from, to } = req.query
+  const { ticker, from, to, mode } = req.query
 
-  if (!ticker || !from || !to) {
-    return res.status(400).json({ error: 'Missing params: ticker, from, to required' })
+  if (!ticker) {
+    return res.status(400).json({ error: 'Missing param: ticker required' })
   }
 
   if (!process.env.IOL_USER || !process.env.IOL_PASS) {
@@ -51,7 +51,15 @@ export default async function handler(req, res) {
   try {
     let token = await getToken()
 
-    const url = `https://api.invertironline.com/api/v2/bCBA/Titulos/${encodeURIComponent(ticker)}/Cotizacion/seriehistorica/${from}/${to}/sinAjustar`
+    // mode=info → fetch current quote to get instrument type (tipo)
+    // default   → fetch historical price series
+    const url = mode === 'info'
+      ? `https://api.invertironline.com/api/v2/bCBA/Titulos/${encodeURIComponent(ticker)}/Cotizacion`
+      : `https://api.invertironline.com/api/v2/bCBA/Titulos/${encodeURIComponent(ticker)}/Cotizacion/seriehistorica/${from}/${to}/sinAjustar`
+
+    if (mode !== 'info' && (!from || !to)) {
+      return res.status(400).json({ error: 'Missing params: from and to required for historical mode' })
+    }
 
     let resp = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },

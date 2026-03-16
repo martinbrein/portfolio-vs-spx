@@ -13,7 +13,7 @@ import IndexSelector from './components/IndexSelector'
 
 import { parseAllariaXLS } from './utils/parseAllaria'
 import { buildPortfolioState, extractTickers } from './utils/holdingsTracker'
-import { fetchAllPrices } from './utils/fetchArgPrices'
+import { fetchAllPrices, fetchBondTickersFromIOL } from './utils/fetchArgPrices'
 import { fetchMEPRates, fillMEPRates } from './utils/fetchMEP'
 import { fetchIndexData } from './utils/fetchSPX'
 import { buildDailyValues, calcTWR } from './utils/calcTWR'
@@ -96,7 +96,13 @@ export default function App() {
       const startDate = dates[0]
       const endDate = dates.at(-1)
 
-      // Step 2: Fetch market prices
+      // Step 2: Enrich bondTickers with IOL instrument types (replaces static rules)
+      setLoadingStep('Identificando tipos de instrumento...')
+      const iolBondTickers = await fetchBondTickersFromIOL(tickers)
+      // Merge: keep any bonds already detected from ops (CUPON/AMORT/USD-price≥5)
+      for (const t of iolBondTickers) state.bondTickers.add(t)
+
+      // Step 3: Fetch market prices
       let fetched = 0
       const { marketPrices: mp, priceSources: ps } = await fetchAllPrices(
         tickers, startDate, endDate,

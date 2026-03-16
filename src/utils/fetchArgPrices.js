@@ -166,6 +166,60 @@ export async function fetchTickerPrices(ticker, startDate, endDate, isBond = fal
   return { prices: {}, source: 'none' }
 }
 
+// Session-level cache so we don't re-fetch types on every file upload
+const _typeCache = {}
+
+/**
+ * Fetch the IOL instrument type for a single ticker.
+ * Returns the raw `tipo` string (e.g. "Bonos", "Letras", "Acciones", "Cedears")
+ * or null if unavailable.
+ */
+async function fetchInstrumentType(ticker) {
+  if (_typeCache[ticker] !== undefined) return _typeCache[ticker]
+  try {
+    const res = await withTimeout(
+      fetch(`/api/iol?ticker=${encodeURIComponent(ticker)}&mode=info`),
+      8000
+    )
+    if (!res.ok) { _typeCache[ticker] = null; return null }
+    const json = await res.json()
+    // IOL returns tipo at top level or inside instrumento/titulo
+    const tipo = json?.tipo ?? json?.instrumento?.tipo ?? json?.titulo?.tipo ?? null
+    _typeCache[ticker] = tipo
+    return tipo
+  } catch {
+    _typeCache[ticker] = null
+    return null
+  }
+}
+
+/**
+ * Fetch IOL instrument types for all tickers in parallel.
+ * Returns a Set of tickers identified as renta fija (bonds/letras).
+ */
+export async function fetchBondTickersFromIOL(tickers) {
+  const bondTickers = new Set()
+  await Promise.allSettled(
+    tickers.map(async (ticker) => {
+      const tipo = await fetchInstrumentType(ticker)
+      if (!tipo) return
+      const t = tipo.toLowerCase()
+      // IOL bond types: Bonos, Letras, TitulosPublicos, Obligaciones, etc.
+      if (
+        t.includes('bono') ||
+        t.includes('letra') ||
+        t.includes('titulo') ||
+        t.includes('obligacion') ||
+        t.includes('on ')  ||
+        t.includes('caucio')
+      ) {
+        bondTickers.add(ticker)
+      }
+    })
+  )
+  return bondTickers
+}
+
 /**
  * Fetch prices for all tickers in parallel
  */
