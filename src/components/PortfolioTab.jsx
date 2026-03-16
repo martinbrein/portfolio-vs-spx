@@ -4,10 +4,11 @@ function fmt(n, dec = 2, prefix = '') {
 }
 
 const SOURCE_BADGE = {
-  yahoo: { label: 'Yahoo', cls: 'bg-blue-900 text-blue-300' },
-  cafci: { label: 'CAFCI', cls: 'bg-green-900 text-green-300' },
+  iol:          { label: 'IOL',         cls: 'bg-violet-900 text-violet-300' },
+  yahoo:        { label: 'Yahoo',       cls: 'bg-blue-900 text-blue-300' },
+  cafci:        { label: 'CAFCI',       cls: 'bg-green-900 text-green-300' },
   interpolated: { label: 'Interpolado', cls: 'bg-yellow-900 text-yellow-300' },
-  none: { label: 'Sin precio', cls: 'bg-red-900 text-red-300' },
+  none:         { label: 'Sin precio',  cls: 'bg-red-900 text-red-300' },
 }
 
 export default function PortfolioTab({ holdings, marketPrices, priceSources, knownPrices, mepRate, arsBalance, usdBalance }) {
