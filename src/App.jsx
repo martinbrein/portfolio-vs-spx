@@ -52,8 +52,7 @@ export default function App() {
       let fetched = 0
       const { marketPrices: mp, priceSources: ps } = await fetchAllPrices(
         tickers, startDate, endDate,
-        () => { fetched++; setLoadingStep(`Obteniendo precios... ${fetched}/${tickers.length}`) },
-        state.bondTickers
+        () => { fetched++; setLoadingStep(`Obteniendo precios... ${fetched}/${tickers.length}`) }
       )
       setMarketPrices(mp)
       setPriceSources(ps)

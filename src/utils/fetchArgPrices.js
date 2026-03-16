@@ -6,10 +6,11 @@ function withTimeout(promise, ms) {
 }
 
 /**
- * Fetch historical prices for Argentine stocks/CEDEARs via Yahoo Finance (.BA)
- * @returns {object} { date: priceARS }
+ * Fetch historical prices via Yahoo Finance (.BA)
+ * @returns {{ prices: object, quoteType: string|null }}
+ *   quoteType: 'EQUITY' for stocks/CEDEARs, other values for bonds/funds
  */
-export async function fetchStockPrices(ticker, startDate, endDate) {
+async function fetchYahooPrices(ticker, startDate, endDate) {
   const p1 = Math.floor(new Date(startDate).getTime() / 1000)
   const end = new Date(endDate)
   end.setDate(end.getDate() + 3)
@@ -20,10 +21,12 @@ export async function fetchStockPrices(ticker, startDate, endDate) {
       fetch(`/api/argprices?type=stock&ticker=${ticker}&p1=${p1}&p2=${p2}`),
       10000
     )
-    if (!res.ok) return {}
+    if (!res.ok) return { prices: {}, quoteType: null }
     const json = await res.json()
     const result = json?.chart?.result?.[0]
-    if (!result) return {}
+    if (!result) return { prices: {}, quoteType: null }
+
+    const quoteType = result.meta?.quoteType ?? null
 
     const timestamps = result.timestamp ?? []
     const closes =
@@ -38,9 +41,9 @@ export async function fetchStockPrices(ticker, startDate, endDate) {
         prices[date] = closes[i]
       }
     }
-    return prices
+    return { prices, quoteType }
   } catch {
-    return {}
+    return { prices: {}, quoteType: null }
   }
 }
 
@@ -100,17 +103,19 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
 
 /**
  * Classify a ticker and fetch its prices.
- * Returns { date: priceARS } map.
+ * Uses Yahoo Finance quoteType to distinguish stocks/CEDEARs (EQUITY) from renta fija.
+ * Bonds are quoted per 100 nominal on Yahoo → divide by 100 to get per-unit price.
  */
-export async function fetchTickerPrices(ticker, startDate, endDate, isBond = false) {
-  // Try stock (Yahoo Finance .BA) first
-  const stockPrices = await fetchStockPrices(ticker, startDate, endDate)
-  if (Object.keys(stockPrices).length > 0) {
-    // Argentine bonds are quoted per 100 nominal on Yahoo Finance.
-    // Divide by 100 to convert to per-unit (per 1 nominal).
+export async function fetchTickerPrices(ticker, startDate, endDate) {
+  // Try Yahoo Finance first
+  const { prices: yahooPrices, quoteType } = await fetchYahooPrices(ticker, startDate, endDate)
+  if (Object.keys(yahooPrices).length > 0) {
+    // EQUITY = acción local o CEDEAR → price is per unit, use directly
+    // Anything else (BOND, MUTUALFUND, unknown) → renta fija, price is per 100 nominal → /100
+    const isBond = quoteType !== 'EQUITY'
     const prices = isBond
-      ? Object.fromEntries(Object.entries(stockPrices).map(([d, p]) => [d, p / 100]))
-      : stockPrices
+      ? Object.fromEntries(Object.entries(yahooPrices).map(([d, p]) => [d, p / 100]))
+      : yahooPrices
     return { prices, source: 'yahoo' }
   }
 
@@ -124,13 +129,13 @@ export async function fetchTickerPrices(ticker, startDate, endDate, isBond = fal
 /**
  * Fetch prices for all tickers in parallel
  */
-export async function fetchAllPrices(tickers, startDate, endDate, onProgress, bondTickers = new Set()) {
+export async function fetchAllPrices(tickers, startDate, endDate, onProgress) {
   const marketPrices = {} // { ticker: { date: priceARS } }
   const priceSources = {} // { ticker: 'yahoo' | 'cafci' | 'interpolated' | 'none' }
 
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     tickers.map(async (ticker) => {
-      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate, bondTickers.has(ticker))
+      const { prices, source } = await fetchTickerPrices(ticker, startDate, endDate)
       marketPrices[ticker] = prices
       priceSources[ticker] = source
       onProgress?.()
