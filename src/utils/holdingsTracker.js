@@ -9,7 +9,7 @@
 const SOVEREIGN_BONDS = new Set(['A027', 'AN29', 'AL30', 'AL36', 'AL41', 'AE38', 'GD29', 'GD30', 'GD35', 'GD38', 'GD41'])
 
 // Stocks/CEDEARs that happen to have 5 chars (exceptions to the ON rule)
-const STOCK_EXCEPTIONS = new Set(['TECO2', 'TGSU2'])
+const STOCK_EXCEPTIONS = new Set(['TECO2', 'TGSU2', 'GOOGL'])
 
 /**
  * Returns true if the ticker is renta fija based on static rules.
