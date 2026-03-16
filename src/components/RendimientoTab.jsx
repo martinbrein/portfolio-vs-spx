@@ -159,17 +159,26 @@ export default function RendimientoTab({
   mepRate,
   arsBalance,
   usdBalance,
+  portfolioValueUSD = null,
+  netContributions = null,
 }) {
   const positions = buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate)
 
-  // Total portfolio USD for contribution calculation
+  // Total portfolio USD for contribution % calculation
   const totalPortfolioUSD = positions.reduce((sum, p) => sum + (p.currentValueUSD ?? 0), 0)
     + (usdBalance ?? 0)
     + ((arsBalance ?? 0) / (mepRate ?? 1))
 
   const totalUnrealizedUSD = positions.reduce((s, p) => s + p.unrealizedPnlUSD, 0)
   const totalRealizedUSD   = positions.reduce((s, p) => s + p.realizedPnlUSD, 0)
-  const totalPnlUSD        = totalUnrealizedUSD + totalRealizedUSD
+
+  // True P&L = current portfolio value minus net contributions.
+  // The per-asset sum (unrealized + realized) excludes cash income (coupons,
+  // dividends) and differences not attributable to individual positions,
+  // so it can diverge from the actual portfolio gain/loss.
+  const truePnlUSD = portfolioValueUSD != null && netContributions != null
+    ? portfolioValueUSD - netContributions
+    : null
 
   const openPositions   = positions.filter(p => !p.isClosed)
   const closedPositions = positions.filter(p => p.isClosed)
@@ -248,26 +257,31 @@ export default function RendimientoTab({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
           {
-            label: 'P&L Total',
-            value: `${totalPnlUSD >= 0 ? '+' : ''}US$ ${fmt(totalPnlUSD, 0)}`,
-            cls: totalPnlUSD >= 0 ? 'text-green-400' : 'text-red-400',
+            label: 'Ganancia / Pérdida',
+            value: truePnlUSD != null
+              ? `${truePnlUSD >= 0 ? '+' : ''}US$ ${fmt(Math.abs(truePnlUSD), 0)}`
+              : '—',
+            cls: truePnlUSD != null ? (truePnlUSD >= 0 ? 'text-green-400' : 'text-red-400') : 'text-slate-400',
+            sub: 'valor de cartera − aportes netos',
           },
           {
-            label: 'No realizado',
+            label: 'No realizado (activos)',
             value: `${totalUnrealizedUSD >= 0 ? '+' : ''}US$ ${fmt(totalUnrealizedUSD, 0)}`,
             cls: totalUnrealizedUSD >= 0 ? 'text-green-400' : 'text-red-400',
+            sub: 'precio actual vs precio compra',
           },
           {
-            label: 'Realizado',
+            label: 'Realizado (activos)',
             value: `${totalRealizedUSD >= 0 ? '+' : ''}US$ ${fmt(totalRealizedUSD, 0)}`,
             cls: totalRealizedUSD >= 0 ? 'text-green-400' : 'text-red-400',
+            sub: 'precio venta vs precio compra',
           },
           {
             label: 'Mejor posición',
             value: positions[0]?.ticker ?? '—',
             cls: 'text-blue-300 font-mono',
             sub: positions[0]
-              ? `+US$ ${fmt(positions[0].totalPnlUSD, 0)}`
+              ? `${positions[0].totalPnlUSD >= 0 ? '+' : ''}US$ ${fmt(positions[0].totalPnlUSD, 0)}`
               : '',
           },
         ].map(({ label, value, cls, sub }) => (

@@ -284,6 +284,8 @@ export default function App() {
             mepRate={currentMEP}
             arsBalance={portfolioResult.finalARS}
             usdBalance={portfolioResult.finalUSD}
+            portfolioValueUSD={dailyValues?.at(-1)?.valueUSD ?? null}
+            netContributions={netContributions}
           />
         )}
 
