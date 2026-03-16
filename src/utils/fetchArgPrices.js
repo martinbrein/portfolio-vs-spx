@@ -6,9 +6,34 @@ function withTimeout(promise, ms) {
 }
 
 /**
- * Fetch historical prices via Yahoo Finance (.BA)
+ * Fetch historical prices via IOL API (primary source for all BYMA instruments)
+ * @returns {{ date: price }} — uses cierre (close), falls back to ultimo (last)
+ */
+async function fetchIOLPrices(ticker, startDate, endDate) {
+  try {
+    const res = await withTimeout(
+      fetch(`/api/iol?ticker=${encodeURIComponent(ticker)}&from=${startDate}&to=${endDate}`),
+      15000
+    )
+    if (!res.ok) return {}
+    const json = await res.json()
+    if (!Array.isArray(json) || json.length === 0) return {}
+
+    const prices = {}
+    for (const item of json) {
+      const date = item.fechaHora?.split('T')[0]
+      const price = item.cierre ?? item.ultimo ?? null
+      if (date && price != null && price > 0) prices[date] = price
+    }
+    return prices
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Fetch historical prices via Yahoo Finance (.BA suffix)
  * @returns {{ prices: object, quoteType: string|null }}
- *   quoteType: 'EQUITY' for stocks/CEDEARs, other values for bonds/funds
  */
 async function fetchYahooPrices(ticker, startDate, endDate) {
   const p1 = Math.floor(new Date(startDate).getTime() / 1000)
@@ -102,14 +127,27 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
 }
 
 /**
- * Classify a ticker and fetch its prices.
- * Bond detection priority:
- *  1. bondTickers set (from operations: CUPON/AMORTIZACION, sovereign list, 5-char ONs)
- *  2. Yahoo Finance quoteType != 'EQUITY' as fallback
- * Bonds are quoted per 100 nominal on Yahoo → divide by 100 to get per-unit price.
+ * Fetch prices for a single ticker.
+ *
+ * Source priority:
+ *  1. IOL API  (primary — all BYMA instruments)
+ *  2. Yahoo Finance (.BA) — fallback
+ *  3. CAFCI — for FCI funds only
+ *
+ * Bond pricing: IOL and Yahoo both quote bonds as % of par (e.g. 67.0 for GD35).
+ * When isBond=true, divide by 100 to get price per nominal unit.
  */
 export async function fetchTickerPrices(ticker, startDate, endDate, isBond = false) {
-  // Try Yahoo Finance first
+  // 1. Try IOL (primary)
+  const iolRaw = await fetchIOLPrices(ticker, startDate, endDate)
+  if (Object.keys(iolRaw).length > 0) {
+    const prices = isBond
+      ? Object.fromEntries(Object.entries(iolRaw).map(([d, p]) => [d, p / 100]))
+      : iolRaw
+    return { prices, source: 'iol' }
+  }
+
+  // 2. Try Yahoo Finance (fallback)
   const { prices: yahooPrices } = await fetchYahooPrices(ticker, startDate, endDate)
   if (Object.keys(yahooPrices).length > 0) {
     const prices = isBond
@@ -118,7 +156,7 @@ export async function fetchTickerPrices(ticker, startDate, endDate, isBond = fal
     return { prices, source: 'yahoo' }
   }
 
-  // Try CAFCI (for FCI funds)
+  // 3. Try CAFCI (FCI funds)
   const fciPrices = await fetchFCIPrices(ticker, startDate, endDate)
   if (Object.keys(fciPrices).length > 0) return { prices: fciPrices, source: 'cafci' }
 
@@ -130,7 +168,7 @@ export async function fetchTickerPrices(ticker, startDate, endDate, isBond = fal
  */
 export async function fetchAllPrices(tickers, startDate, endDate, onProgress, bondTickers = new Set()) {
   const marketPrices = {} // { ticker: { date: priceARS } }
-  const priceSources = {} // { ticker: 'yahoo' | 'cafci' | 'interpolated' | 'none' }
+  const priceSources = {} // { ticker: 'iol' | 'yahoo' | 'cafci' | 'none' }
 
   await Promise.allSettled(
     tickers.map(async (ticker) => {
