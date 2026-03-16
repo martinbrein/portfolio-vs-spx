@@ -24,6 +24,8 @@ export function buildPortfolioState(ops) {
     const qty = op.valorNominal ?? 0
     const price = op.precio
 
+    const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
+
     // Record known price from the operation — always store in ARS
     if (op.ticker && price && price > 0) {
       let arsPrice = price
@@ -38,8 +40,6 @@ export function buildPortfolioState(ops) {
       if (!knownPrices[op.ticker]) knownPrices[op.ticker] = []
       knownPrices[op.ticker].push({ date: op.date, price: arsPrice })
     }
-
-    const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
 
     switch (op.type) {
       case 'COMPRA':
