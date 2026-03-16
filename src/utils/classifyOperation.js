@@ -32,8 +32,8 @@ function extractTickerAfterSlash(detalle, keyword) {
 }
 
 const IGNORE_PATTERNS = [
-  /bloqueo monetario/i,
-  /desbloqueo monetario/i,
+  /bloqueo/i,
+  /desbloqueo/i,
   /saldo anterior/i,
 ]
 

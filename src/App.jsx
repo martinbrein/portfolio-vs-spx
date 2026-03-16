@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import UploadSection from './components/UploadSection'
 import OperationsTable from './components/OperationsTable'
 import PortfolioTab from './components/PortfolioTab'
+import CaucionesTab from './components/CaucionesTab'
 import CumulativeChart from './components/CumulativeChart'
 import DrawdownChart from './components/DrawdownChart'
 import MetricsGrid from './components/MetricsGrid'
@@ -15,7 +16,7 @@ import { fetchSPXData } from './utils/fetchSPX'
 import { buildDailyValues, calcTWR } from './utils/calcTWR'
 import { calcMetrics, buildDrawdownData, filterByPeriod } from './utils/calculations'
 
-const TABS = ['Operaciones', 'Cartera', 'TWR vs SPX']
+const TABS = ['Operaciones', 'Cartera', 'Cauciones', 'TWR vs SPX']
 
 function fmt(n, dec = 2) {
   if (n == null || isNaN(n)) return '—'
@@ -155,7 +156,7 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {activeTab === 2 && <PeriodSelector selected={period} onChange={setPeriod} />}
+            {activeTab === 3 && <PeriodSelector selected={period} onChange={setPeriod} />}
             <button
               onClick={() => { setOps(null); setPortfolioResult(null); setSpxAligned(null); setMarketPrices({}); setMepRates({}); setNetContributions(null) }}
               className="text-slate-400 hover:text-white text-sm border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1 transition-colors"
@@ -186,6 +187,10 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 2 && ops && (
+          <CaucionesTab ops={ops} />
+        )}
+
         {activeTab === 1 && portfolioResult && (
           <PortfolioTab
             holdings={portfolioResult.finalHoldings}
@@ -198,7 +203,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 2 && (
+        {activeTab === 3 && (
           <>
             {!filteredAligned || filteredAligned.length < 2 ? (
               <div className="bg-slate-800 rounded-2xl p-8 text-center">

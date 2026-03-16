@@ -13,7 +13,8 @@ export default function OperationsTable({ ops }) {
   const [search, setSearch] = useState('')
 
   const visible = ops
-    .filter((op) => op.type !== 'IGNORAR')
+    .filter((op) => op.type !== 'IGNORAR' && op.type !== 'CAUCION')
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
     .filter((op) => filter === 'Todos' || op.type === filter)
     .filter((op) => {
       if (!search) return true

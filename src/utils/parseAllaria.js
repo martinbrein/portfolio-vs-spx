@@ -28,9 +28,7 @@ function parseNum(val) {
  *   ARS        → "Pesos - $"
  *   USD_MEP    → "MEP Dólar - M"
  *   USD_CABLE  → "Dólar - U$S" (cable)
- * Top-level groupings:
- *   "Disponible"    → available assets (process normally)
- *   "NO Disponible" → blocked assets (skip entirely — mirror entries for cauciones, etc.)
+ * "Disponible" / "No Disponible" sub-groupings are ignored — they don't affect ops.
  */
 function detectSection(row) {
   const cell = String(row[0] || '').toLowerCase().trim()
@@ -43,8 +41,6 @@ function detectSection(row) {
   if (/mep/.test(cell)) return 'USD_MEP'
   if (/u\$s|cable/.test(cell)) return 'USD_CABLE'
   if (/d[oó]lar/.test(cell) && !/mep/.test(cell)) return 'USD_CABLE'
-  if (/no\s+disponible/.test(cell)) return '__NON_AVAILABLE__'
-  if (/disponible/.test(cell)) return '__SKIP__'  // "Disponible" wrapper — no currency change
 
   return null
 }
@@ -62,26 +58,17 @@ export function parseAllariaXLS(file) {
         const ops = []
         const mepRatesFromOps = {}  // { date: mepRate } extracted from tipoCambio
         let currentCurrency = 'ARS'
-        let inNonAvailable = false  // Skip all rows in "NO Disponible" section
 
         for (const row of rows) {
           // Skip header row
           if (String(row[0]).includes('Fecha') && String(row[2]).includes('Detalle')) continue
 
-          // Detect section headers
+          // Detect section headers (currency change)
           const section = detectSection(row)
           if (section) {
-            if (section === '__NON_AVAILABLE__') {
-              inNonAvailable = true
-            } else {
-              inNonAvailable = false
-              if (section !== '__SKIP__') currentCurrency = section
-            }
+            currentCurrency = section
             continue
           }
-
-          // Skip everything inside "NO Disponible" (blocked/mirrored entries)
-          if (inNonAvailable) continue
 
           // Skip sub-section labels (Saldo Anterior, empty rows)
           const detalle = String(row[2] || '').trim()
