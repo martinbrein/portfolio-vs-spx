@@ -115,7 +115,7 @@ export function calcMetrics(data, riskFreeRate = 5) {
     },
     comparison: {
       beta,
-      alpha: portCAGR - (riskFreeRate + beta * (spxCAGR - riskFreeRate)),
+      alpha: portCAGR - spxCAGR,   // excess CAGR over benchmark
       correlation: corr,
       trackingError,
     },

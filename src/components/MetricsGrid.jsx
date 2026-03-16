@@ -73,20 +73,6 @@ export default function MetricsGrid({ metrics }) {
               spxClass={color(s.sharpe)}
             />
             <Row
-              label="Max Drawdown"
-              portfolio={fmt(p.maxDrawdown)}
-              spx={fmt(s.maxDrawdown)}
-              portClass={color(p.maxDrawdown, false)}
-              spxClass={color(s.maxDrawdown, false)}
-            />
-            <Row
-              label="Calmar ratio"
-              portfolio={fmtPlain(p.calmar)}
-              spx={fmtPlain(s.calmar)}
-              portClass={color(p.calmar)}
-              spxClass={color(s.calmar)}
-            />
-            <Row
               label="Mejor día"
               portfolio={fmt(p.bestDay)}
               spx={fmt(s.bestDay)}
