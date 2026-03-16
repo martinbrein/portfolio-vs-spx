@@ -22,8 +22,11 @@ async function fetchIOLPrices(ticker, startDate, endDate) {
     const prices = {}
     for (const item of json) {
       const date = item.fechaHora?.split('T')[0]
-      const price = item.cierre ?? item.ultimo ?? null
-      if (date && price != null && price > 0) prices[date] = price
+      const price = item.ultimoPrecio ?? null
+      // Response is sorted newest-first within each day → first occurrence per date = closing price
+      if (date && price != null && price > 0 && !prices[date]) {
+        prices[date] = price
+      }
     }
     return prices
   } catch {
