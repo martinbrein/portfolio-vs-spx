@@ -30,7 +30,7 @@ export function buildPortfolioState(ops) {
       knownPrices[op.ticker].push({ date: op.date, price })
     }
 
-    const isUSD = op.currency === 'USD_MEP'
+    const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
 
     switch (op.type) {
       case 'COMPRA':

@@ -22,21 +22,30 @@ function parseNum(val) {
   return isNaN(n) ? null : n
 }
 
-// Section header keywords
-const SECTION_KEYWORDS = {
-  'pesos': 'ARS',
-  '$ ': 'ARS',
-  'mep': 'USD_MEP',
-  'dólar': 'USD_MEP',
-  'dolar': 'USD_MEP',
-  'disponible': 'CASH',
-}
-
+/**
+ * Detect section headers that mark currency context.
+ * Allaria has 3 settlement currencies:
+ *   ARS      → "Pesos - $"
+ *   USD_MEP  → "MEP Dólar - M"
+ *   USD_CABLE→ "Dólar - U$S" (cable)
+ * Plus "Disponible" / "NO Disponible" wrappers (ignored as currency change).
+ */
 function detectSection(row) {
   const cell = String(row[0] || '').toLowerCase().trim()
-  for (const [kw, sec] of Object.entries(SECTION_KEYWORDS)) {
-    if (cell.includes(kw)) return sec
-  }
+  if (!cell) return null
+
+  // Must have no detalle (col2 empty) to be a section header
+  const hasDetalle = String(row[2] || '').trim()
+  if (hasDetalle) return null
+
+  if (/pesos|^-?\s*\$/.test(cell)) return 'ARS'
+  if (/mep/.test(cell)) return 'USD_MEP'
+  if (/u\$s|cable/.test(cell)) return 'USD_CABLE'
+  // Generic "Dólar" without MEP or U$S qualifier → cable
+  if (/d[oó]lar/.test(cell) && !/mep/.test(cell)) return 'USD_CABLE'
+  // "Disponible" / "NO Disponible" are sub-groupings, not currency changes
+  if (/disponible/.test(cell)) return '__SKIP__'
+
   return null
 }
 
@@ -60,7 +69,7 @@ export function parseAllariaXLS(file) {
           // Detect section headers (rows with no date but a label in col 0)
           const section = detectSection(row)
           if (section) {
-            currentCurrency = section
+            if (section !== '__SKIP__') currentCurrency = section
             continue
           }
 
