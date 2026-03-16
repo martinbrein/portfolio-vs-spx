@@ -236,19 +236,18 @@ export default function RendimientoTab({
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">P&L Precio</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">Ingresos</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">P&L Total</th>
-                <th className="pb-2 text-right  text-xs text-slate-400 font-medium" title="P&L total del activo como % del capital aportado">% Capital</th>
+                <th className="pb-2 text-right  text-xs text-slate-400 font-medium" title="Contribución al retorno de la cartera: P&L del activo / valor total de la cartera">Contrib. %</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => {
-                // Contribution = position P&L as % of total invested capital.
-                // Using netContributions (always positive) as denominator keeps
-                // signs correct even when the overall portfolio P&L is negative.
-                const base = netContributions ?? totalPortfolioUSD
-                const contrib = base > 0 ? (p.totalPnlUSD / base) * 100 : null
+                // Contribution to portfolio return = position P&L / portfolio value.
+                // Denominator is always positive → sign of contrib always matches sign of P&L.
+                // Sum of all contributions ≈ total portfolio return %.
+                const denominator = portfolioValueUSD ?? totalPortfolioUSD
+                const contrib = denominator > 0 ? (p.totalPnlUSD / denominator) * 100 : null
                 const pricePnl = isClosedTable ? p.realizedPnlUSD : p.unrealizedPnlUSD
                 const pricePos = (pricePnl ?? 0) >= 0
-                const incomePos = p.incomeUSD >= 0
                 const totalPos = p.totalPnlUSD >= 0
                 const pctPos = (p.priceChangePct ?? 0) >= 0
                 return (
@@ -273,7 +272,7 @@ export default function RendimientoTab({
                     <td className={`py-2.5 text-right font-mono text-xs
                         ${pricePos ? 'text-green-400' : 'text-red-400'}`}>
                       {pricePnl != null
-                        ? `${pricePos ? '+' : ''}US$ ${fmt(Math.abs(pricePnl), 0)}`
+                        ? `${pricePos ? '+' : '-'}US$ ${fmt(Math.abs(pricePnl), 0)}`
                         : '—'}
                     </td>
                     {/* Income (dividends / coupons / amortizations) */}
@@ -286,7 +285,7 @@ export default function RendimientoTab({
                     {/* Total P&L = price + income */}
                     <td className={`py-2.5 text-right font-mono text-xs font-semibold
                         ${totalPos ? 'text-green-400' : 'text-red-400'}`}>
-                      {`${totalPos ? '+' : ''}US$ ${fmt(Math.abs(p.totalPnlUSD), 0)}`}
+                      {`${totalPos ? '+' : '-'}US$ ${fmt(Math.abs(p.totalPnlUSD), 0)}`}
                     </td>
                     {/* P&L as % of invested capital */}
                     <td className={`py-2.5 text-right font-mono text-xs
@@ -313,14 +312,14 @@ export default function RendimientoTab({
           {
             label: 'Ganancia / Pérdida',
             value: truePnlUSD != null
-              ? `${truePnlUSD >= 0 ? '+' : ''}US$ ${fmt(Math.abs(truePnlUSD), 0)}`
+              ? `${truePnlUSD >= 0 ? '+' : '-'}US$ ${fmt(Math.abs(truePnlUSD), 0)}`
               : '—',
             cls: truePnlUSD != null ? (truePnlUSD >= 0 ? 'text-green-400' : 'text-red-400') : 'text-slate-400',
             sub: 'valor de cartera − aportes netos',
           },
           {
             label: 'P&L por precio',
-            value: `${totalPricePnlUSD >= 0 ? '+' : ''}US$ ${fmt(Math.abs(totalPricePnlUSD), 0)}`,
+            value: `${totalPricePnlUSD >= 0 ? '+' : '-'}US$ ${fmt(Math.abs(totalPricePnlUSD), 0)}`,
             cls: totalPricePnlUSD >= 0 ? 'text-green-400' : 'text-red-400',
             sub: 'cambio de precio de los activos',
           },
@@ -335,8 +334,8 @@ export default function RendimientoTab({
           {
             label: gapUSD != null ? `Otros / No atribuido` : 'P&L Activos',
             value: gapUSD != null
-              ? `${gapUSD >= 0 ? '+' : ''}US$ ${fmt(Math.abs(gapUSD), 0)}`
-              : `${totalAssetPnlUSD >= 0 ? '+' : ''}US$ ${fmt(Math.abs(totalAssetPnlUSD), 0)}`,
+              ? `${gapUSD >= 0 ? '+' : '-'}US$ ${fmt(Math.abs(gapUSD), 0)}`
+              : `${totalAssetPnlUSD >= 0 ? '+' : '-'}US$ ${fmt(Math.abs(totalAssetPnlUSD), 0)}`,
             cls: (gapUSD ?? totalAssetPnlUSD) >= 0 ? 'text-slate-300' : 'text-orange-400',
             sub: gapUSD != null
               ? 'cauciones, efectos de conversión ARS'
