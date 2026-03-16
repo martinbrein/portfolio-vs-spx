@@ -69,10 +69,14 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
     return { type: isBuy ? 'COMPRA' : 'VENTA', ticker, isECF: false }
   }
 
-  // FCI rescate
+  // FCI rescate / suscripción (liquidación)
   if (/liquidaci[oó]n\s*de\s*rescate/i.test(d)) {
     const ticker = d.split('/').slice(2).join('/').trim() || d
     return { type: 'RESCATE', ticker: ticker.split('/')[0].trim(), isECF: false }
+  }
+  if (/liquidaci[oó]n\s*de\s*suscripci[oó]n/i.test(d)) {
+    const ticker = d.split('/').slice(2).join('/').trim() || d
+    return { type: 'SUSCRIPCION', ticker: ticker.split('/')[0].trim(), isECF: false }
   }
 
   // Dividendo
@@ -81,8 +85,8 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
     return { type: 'DIVIDENDO', ticker, isECF: false }
   }
 
-  // Cupon
-  if (/cobro\s*de\s*cup[oó]n/i.test(d) || /cup[oó]n/i.test(d)) {
+  // Cupon / Renta (intereses de bonos)
+  if (/cobro\s*de\s*cup[oó]n/i.test(d) || /cup[oó]n/i.test(d) || /^renta\s*\//i.test(d)) {
     const ticker = extractTickerAfterSlash(d, '/')
     return { type: 'CUPON', ticker, isECF: false }
   }
