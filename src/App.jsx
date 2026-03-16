@@ -167,9 +167,35 @@ export default function App() {
   const metrics = useMemo(() => alignedForMetrics ? calcMetrics(alignedForMetrics) : null, [alignedForMetrics])
   const drawdownData = useMemo(() => alignedForMetrics ? buildDrawdownData(alignedForMetrics) : null, [alignedForMetrics])
 
+  // Period-relative returns: divide end index level by start index level
+  // For MAX, filteredAligned[0].portfolio === 0, so result equals the raw last value
+  const portReturn = useMemo(() => {
+    if (!filteredAligned || filteredAligned.length < 2) return 0
+    const start = 1 + filteredAligned[0].portfolio / 100
+    const end   = 1 + filteredAligned.at(-1).portfolio / 100
+    return (end / start - 1) * 100
+  }, [filteredAligned])
+
+  const spxReturn = useMemo(() => {
+    if (!filteredAligned || filteredAligned.length < 2) return 0
+    const start = 1 + filteredAligned[0].spx / 100
+    const end   = 1 + filteredAligned.at(-1).spx / 100
+    return (end / start - 1) * 100
+  }, [filteredAligned])
+
+  // Normalise chart data to start at 0% for the selected period
+  const chartData = useMemo(() => {
+    if (!filteredAligned || filteredAligned.length < 2) return filteredAligned
+    const portBase = 1 + filteredAligned[0].portfolio / 100
+    const spxBase  = 1 + filteredAligned[0].spx / 100
+    return filteredAligned.map((d) => ({
+      date: d.date,
+      portfolio: ((1 + d.portfolio / 100) / portBase - 1) * 100,
+      spx:       ((1 + d.spx      / 100) / spxBase  - 1) * 100,
+    }))
+  }, [filteredAligned])
+
   const days = metrics?.days ?? 0
-  const portReturn = filteredAligned?.at(-1)?.portfolio ?? 0
-  const spxReturn = filteredAligned?.at(-1)?.spx ?? 0
 
   if (!ops) {
     return (
@@ -273,24 +299,35 @@ export default function App() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-                  {[
-                    { label: 'TWR Portfolio', value: `${portReturn >= 0 ? '+' : ''}${portReturn.toFixed(2)}%`, cls: portReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.portfolio.cagr?.toFixed(1) ?? '—'}%` },
-                    { label: INDICES[benchmarkIndex].label, value: `${spxReturn >= 0 ? '+' : ''}${spxReturn.toFixed(2)}%`, cls: spxReturn >= 0 ? 'text-green-400' : 'text-red-400', sub: `CAGR ${metrics?.spx.cagr?.toFixed(1) ?? '—'}%` },
-                    { label: 'Exceso', value: `${(portReturn - spxReturn) >= 0 ? '+' : ''}${(portReturn - spxReturn).toFixed(2)}%`, cls: (portReturn - spxReturn) >= 0 ? 'text-green-400' : 'text-red-400', sub: `Alpha ${metrics?.comparison.alpha?.toFixed(1) ?? '—'}%` },
-                    { label: 'Sharpe', value: metrics?.portfolio.sharpe?.toFixed(2) ?? '—', cls: (metrics?.portfolio.sharpe ?? 0) >= 1 ? 'text-green-400' : 'text-yellow-400', sub: `vs idx ${metrics?.spx.sharpe?.toFixed(2) ?? '—'}` },
-                    { label: 'Aportes netos', value: netContributions != null ? `US$ ${fmt(netContributions, 0)}` : '—', cls: 'text-slate-300', sub: 'depósitos − retiros (MEP)' },
-                  ].map(({ label, value, cls, sub }) => (
-                    <div key={label} className="bg-slate-800 rounded-2xl p-5">
-                      <p className="text-slate-400 text-xs mb-1">{label}</p>
-                      <p className={`text-2xl font-bold font-mono ${cls}`}>{value}</p>
-                      <p className="text-slate-500 text-xs mt-1">{sub}</p>
+                {(() => {
+                  const currentValue = dailyValues?.at(-1)?.valueUSD ?? null
+                  const totalPnl = currentValue != null && netContributions != null
+                    ? currentValue - netContributions : null
+                  const excess = portReturn - spxReturn
+                  const cards = [
+                    { label: 'TWR Portfolio',             value: `${portReturn >= 0 ? '+' : ''}${portReturn.toFixed(2)}%`,   cls: portReturn >= 0 ? 'text-green-400' : 'text-red-400',  sub: `CAGR ${metrics?.portfolio.cagr?.toFixed(1) ?? '—'}%` },
+                    { label: INDICES[benchmarkIndex].label, value: `${spxReturn >= 0 ? '+' : ''}${spxReturn.toFixed(2)}%`,   cls: spxReturn >= 0 ? 'text-green-400' : 'text-red-400',   sub: `CAGR ${metrics?.spx.cagr?.toFixed(1) ?? '—'}%` },
+                    { label: 'Exceso',                    value: `${excess >= 0 ? '+' : ''}${excess.toFixed(2)}%`,           cls: excess >= 0 ? 'text-green-400' : 'text-red-400',       sub: `Alpha ${metrics?.comparison.alpha?.toFixed(1) ?? '—'}%` },
+                    { label: 'Sharpe',                    value: metrics?.portfolio.sharpe?.toFixed(2) ?? '—',               cls: (metrics?.portfolio.sharpe ?? 0) >= 1 ? 'text-green-400' : 'text-yellow-400', sub: `vs idx ${metrics?.spx.sharpe?.toFixed(2) ?? '—'}` },
+                    { label: 'Aportes netos',             value: netContributions != null ? `US$ ${fmt(netContributions, 0)}` : '—', cls: 'text-slate-300', sub: 'depósitos − retiros (MEP)' },
+                    { label: 'Valor de cartera',          value: currentValue != null ? `US$ ${fmt(currentValue, 0)}` : '—', cls: 'text-slate-200',                                      sub: 'valoración al último día' },
+                    { label: 'Ganancia / Pérdida',        value: totalPnl != null ? `${totalPnl >= 0 ? '+' : ''}US$ ${fmt(Math.abs(totalPnl), 0)}` : '—', cls: totalPnl != null ? (totalPnl >= 0 ? 'text-green-400' : 'text-red-400') : 'text-slate-300', sub: 'valor − aportes netos' },
+                  ]
+                  return (
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
+                      {cards.map(({ label, value, cls, sub }) => (
+                        <div key={label} className="bg-slate-800 rounded-2xl p-5">
+                          <p className="text-slate-400 text-xs mb-1">{label}</p>
+                          <p className={`text-2xl font-bold font-mono ${cls}`}>{value}</p>
+                          <p className="text-slate-500 text-xs mt-1">{sub}</p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )
+                })()}
                 <div className="flex flex-col gap-4 mb-6">
                   <PortfolioValueChart dailyValues={dailyValues} />
-                  <CumulativeChart data={filteredAligned} days={days} benchmarkLabel={INDICES[benchmarkIndex].label} />
+                  <CumulativeChart data={chartData} days={days} benchmarkLabel={INDICES[benchmarkIndex].label} />
                   <DrawdownChart data={drawdownData} days={days} benchmarkLabel={INDICES[benchmarkIndex].label} />
                 </div>
                 <MetricsGrid metrics={metrics} benchmarkLabel={INDICES[benchmarkIndex].label} />
