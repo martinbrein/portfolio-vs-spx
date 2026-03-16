@@ -105,7 +105,16 @@ export async function fetchFCIPrices(ticker, startDate, endDate) {
 export async function fetchTickerPrices(ticker, startDate, endDate) {
   // Try stock (Yahoo Finance .BA) first
   const stockPrices = await fetchStockPrices(ticker, startDate, endDate)
-  if (Object.keys(stockPrices).length > 0) return { prices: stockPrices, source: 'yahoo' }
+  if (Object.keys(stockPrices).length > 0) {
+    // Argentine bonds are quoted per 100 nominal on Yahoo Finance (e.g. GD35 = 113 means 1.13 ARS per nominal).
+    // Bond tickers contain digits (GD30, AL35, TX28, AN29, LOC5O, etc.).
+    // Convert to per-unit (per 1 nominal) so calcPortfolioValue can use qty × price directly.
+    const isBond = /\d/.test(ticker)
+    const prices = isBond
+      ? Object.fromEntries(Object.entries(stockPrices).map(([d, p]) => [d, p / 100]))
+      : stockPrices
+    return { prices, source: 'yahoo' }
+  }
 
   // Try CAFCI (for FCI funds)
   const fciPrices = await fetchFCIPrices(ticker, startDate, endDate)
