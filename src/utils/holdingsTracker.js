@@ -24,10 +24,19 @@ export function buildPortfolioState(ops) {
     const qty = op.valorNominal ?? 0
     const price = op.precio
 
-    // Record known price from the operation
+    // Record known price from the operation — always store in ARS
     if (op.ticker && price && price > 0) {
+      let arsPrice = price
+      if (isUSD && op.tipoCambio > 1) {
+        // Convert USD price to ARS equivalent:
+        //  - FCI cuotaparte: precio is USD per unit (e.g., 1.06) → arsPrice = precio × TC
+        //  - Bond/ON:        precio is % of par (e.g., 67.0)     → arsPrice = (precio/100) × TC
+        arsPrice = price < 5
+          ? price * op.tipoCambio          // FCI / absolute USD price
+          : (price / 100) * op.tipoCambio  // Bond % of par
+      }
       if (!knownPrices[op.ticker]) knownPrices[op.ticker] = []
-      knownPrices[op.ticker].push({ date: op.date, price })
+      knownPrices[op.ticker].push({ date: op.date, price: arsPrice })
     }
 
     const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
