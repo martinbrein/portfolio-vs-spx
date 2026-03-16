@@ -156,12 +156,17 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
 }
 
 /**
- * Calculate Time Weighted Return.
+ * Calculate Time Weighted Return using daily chain-linking.
  *
- * Each sub-period: [ECF_date_i, ECF_date_{i+1}]
- *   R_i = V_pre_ECF(end) / V_post_ECF(start) - 1
+ * For each consecutive day pair (i-1 → i):
+ *   - startValue = valueUSD[i-1]  (post-ECF if there was a flow that day)
+ *   - endValue   = preECFValueUSD[i] if day i has a cash flow, else valueUSD[i]
+ *     (using preECF removes the deposit/withdrawal distortion for that day's return)
  *
- * V_pre_ECF eliminates the distortion caused by cash inflows/outflows.
+ * Daily return R_i = endValue / startValue - 1
+ * Cumulative TWR = ∏(1 + R_i) - 1
+ *
+ * This gives a smooth, accurate curve that reflects actual daily price moves.
  *
  * @param {Array} dailyValues - [{date, valueUSD, preECFValueUSD?}] sorted by date
  * @param {Array} ecfEvents   - [{date, direction, amountARS, amountUSD}]
@@ -170,51 +175,33 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
 export function calcTWR(dailyValues, ecfEvents) {
   if (!dailyValues || dailyValues.length < 2) return []
 
-  const valueMap = {}   // post-ECF (or plain) value by date
-  const preECFMap = {}  // pre-ECF value, only set for ECF dates
-
-  for (const dv of dailyValues) {
-    valueMap[dv.date] = dv.valueUSD
-    if (dv.preECFValueUSD != null) preECFMap[dv.date] = dv.preECFValueUSD
-  }
-
-  const sortedDates = dailyValues.map((d) => d.date).sort()
   const ecfDateSet = new Set(ecfEvents.map((e) => e.date))
 
-  // Sub-period boundaries: first date + all ECF dates + last date
-  const boundaries = [sortedDates[0], ...ecfEvents.map((e) => e.date), sortedDates.at(-1)]
-    .filter((d, i, arr) => arr.indexOf(d) === i)
-    .sort()
-
-  // Map from boundary-end-date → cumulative TWR at that boundary
-  const twrAtBoundary = {}
-  let cumulativeTWR = 1
-
-  for (let i = 0; i < boundaries.length - 1; i++) {
-    const startDate = boundaries[i]
-    const endDate = boundaries[i + 1]
-
-    // Start: post-ECF value (capital being invested)
-    const startValue = valueMap[startDate]
-    // End: pre-ECF value if there's a flow on that date, else plain value
-    const endValue = (ecfDateSet.has(endDate) && preECFMap[endDate] != null)
-      ? preECFMap[endDate]
-      : valueMap[endDate]
-
-    if (!startValue || !endValue || startValue <= 0) continue
-
-    cumulativeTWR *= (endValue / startValue)
-    twrAtBoundary[endDate] = cumulativeTWR
-  }
-
-  // Build full daily TWR series — carry forward last known TWR value
   const result = []
-  let lastTWR = 0
-  for (const date of sortedDates) {
-    if (twrAtBoundary[date] !== undefined) {
-      lastTWR = (twrAtBoundary[date] - 1) * 100
+  let cumulativeFactor = 1
+
+  // Day 0 is always the baseline (TWR = 0%)
+  result.push({ date: dailyValues[0].date, twr: 0 })
+
+  for (let i = 1; i < dailyValues.length; i++) {
+    const prev = dailyValues[i - 1]
+    const curr = dailyValues[i]
+
+    // Start of this day's sub-period: post-ECF value from yesterday
+    const startValue = prev.valueUSD
+
+    // End of this day's sub-period:
+    //   - If today has a cash flow → use preECFValue (performance before the flow)
+    //   - Otherwise → use plain daily value
+    const endValue = (ecfDateSet.has(curr.date) && curr.preECFValueUSD != null)
+      ? curr.preECFValueUSD
+      : curr.valueUSD
+
+    if (startValue > 0 && endValue != null) {
+      cumulativeFactor *= endValue / startValue
     }
-    result.push({ date, twr: lastTWR })
+
+    result.push({ date: curr.date, twr: (cumulativeFactor - 1) * 100 })
   }
 
   return result
