@@ -25,26 +25,26 @@ function parseNum(val) {
 /**
  * Detect section headers that mark currency context.
  * Allaria has 3 settlement currencies:
- *   ARS      → "Pesos - $"
- *   USD_MEP  → "MEP Dólar - M"
- *   USD_CABLE→ "Dólar - U$S" (cable)
- * Plus "Disponible" / "NO Disponible" wrappers (ignored as currency change).
+ *   ARS        → "Pesos - $"
+ *   USD_MEP    → "MEP Dólar - M"
+ *   USD_CABLE  → "Dólar - U$S" (cable)
+ * Top-level groupings:
+ *   "Disponible"    → available assets (process normally)
+ *   "NO Disponible" → blocked assets (skip entirely — mirror entries for cauciones, etc.)
  */
 function detectSection(row) {
   const cell = String(row[0] || '').toLowerCase().trim()
   if (!cell) return null
 
   // Must have no detalle (col2 empty) to be a section header
-  const hasDetalle = String(row[2] || '').trim()
-  if (hasDetalle) return null
+  if (String(row[2] || '').trim()) return null
 
   if (/pesos|^-?\s*\$/.test(cell)) return 'ARS'
   if (/mep/.test(cell)) return 'USD_MEP'
   if (/u\$s|cable/.test(cell)) return 'USD_CABLE'
-  // Generic "Dólar" without MEP or U$S qualifier → cable
   if (/d[oó]lar/.test(cell) && !/mep/.test(cell)) return 'USD_CABLE'
-  // "Disponible" / "NO Disponible" are sub-groupings, not currency changes
-  if (/disponible/.test(cell)) return '__SKIP__'
+  if (/no\s+disponible/.test(cell)) return '__NON_AVAILABLE__'
+  if (/disponible/.test(cell)) return '__SKIP__'  // "Disponible" wrapper — no currency change
 
   return null
 }
@@ -60,18 +60,28 @@ export function parseAllariaXLS(file) {
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' })
 
         const ops = []
+        const mepRatesFromOps = {}  // { date: mepRate } extracted from tipoCambio
         let currentCurrency = 'ARS'
+        let inNonAvailable = false  // Skip all rows in "NO Disponible" section
 
         for (const row of rows) {
           // Skip header row
           if (String(row[0]).includes('Fecha') && String(row[2]).includes('Detalle')) continue
 
-          // Detect section headers (rows with no date but a label in col 0)
+          // Detect section headers
           const section = detectSection(row)
           if (section) {
-            if (section !== '__SKIP__') currentCurrency = section
+            if (section === '__NON_AVAILABLE__') {
+              inNonAvailable = true
+            } else {
+              inNonAvailable = false
+              if (section !== '__SKIP__') currentCurrency = section
+            }
             continue
           }
+
+          // Skip everything inside "NO Disponible" (blocked/mirrored entries)
+          if (inNonAvailable) continue
 
           // Skip sub-section labels (Saldo Anterior, empty rows)
           const detalle = String(row[2] || '').trim()
@@ -89,6 +99,11 @@ export function parseAllariaXLS(file) {
           const importeNeto = parseNum(row[6])
           const nroDoc = String(row[7] || '').trim()
           const saldo = parseNum(row[8])
+
+          // Extract MEP rate from USD_MEP section's tipoCambio (ARS per USD)
+          if (currentCurrency === 'USD_MEP' && tipoCambio > 1 && fechaConcertacion) {
+            mepRatesFromOps[fechaConcertacion] = tipoCambio
+          }
 
           const classified = classifyOperation(detalle, valorNominal, importeNeto)
 
@@ -111,7 +126,7 @@ export function parseAllariaXLS(file) {
           throw new Error('No se encontraron operaciones en el archivo. Verificá que sea el extracto de cuenta corriente de Allaria.')
         }
 
-        resolve(ops)
+        resolve({ ops, mepRatesFromOps })
       } catch (err) {
         reject(err)
       }

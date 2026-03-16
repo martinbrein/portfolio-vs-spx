@@ -47,6 +47,12 @@ export function buildPortfolioState(ops) {
         if (op.ticker) holdings[op.ticker] = Math.max(0, (holdings[op.ticker] ?? 0) - Math.abs(qty))
         break
 
+      case 'CAUCION':
+        // Caución bursátil: pure cash in/out, no security holding
+        if (isUSD) usdBalance += importe
+        else arsBalance += importe
+        break
+
       case 'DIVIDENDO':
       case 'CUPON':
       case 'AMORTIZACION':

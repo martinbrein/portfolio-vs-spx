@@ -37,7 +37,7 @@ export default function App() {
     try {
       // Step 1: Parse XLS
       setLoadingStep('Leyendo extracto de Allaria...')
-      const parsedOps = await parseAllariaXLS(file)
+      const { ops: parsedOps, mepRatesFromOps } = await parseAllariaXLS(file)
       setOps(parsedOps)
 
       const state = buildPortfolioState(parsedOps)
@@ -57,10 +57,12 @@ export default function App() {
       setMarketPrices(mp)
       setPriceSources(ps)
 
-      // Step 3: Fetch MEP rates
+      // Step 3: Fetch MEP rates (merge: fetched > XLS-extracted as fallback)
       setLoadingStep('Obteniendo tipo de cambio MEP...')
       const rawMEP = await fetchMEPRates(startDate, endDate)
-      const filledMEP = fillMEPRates(rawMEP, dates)
+      // Merge: ops-extracted rates as base, fetched rates override if available
+      const mergedMEP = { ...mepRatesFromOps, ...rawMEP }
+      const filledMEP = fillMEPRates(mergedMEP, dates)
       setMepRates(filledMEP)
 
       // Step 4: Build daily values + TWR

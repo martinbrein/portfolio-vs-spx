@@ -60,6 +60,10 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
     if (['SUSCOMPRA', 'SUSC'].includes(opCode)) {
       return { type: 'SUSCRIPCION', ticker, isECF: false }
     }
+    if (['APCOLCON', 'APCOLFUT', 'APCOL'].includes(opCode)) {
+      // Caución bursátil: pure cash movement, no security holding
+      return { type: 'CAUCION', ticker: null, isECF: false }
+    }
     if (['VSBNG', 'VSBON', 'VTABONO', 'VTABNG'].includes(opCode)) {
       // Sell via boleto (bond sell or similar)
       return { type: importeNeto > 0 ? 'VENTA' : 'COMPRA', ticker, isECF: false }
@@ -129,6 +133,7 @@ export function classifyOperation(detalle, valorNominal, importeNeto) {
 }
 
 export const OPERATION_LABELS = {
+  CAUCION: 'Caución',
   COMPRA: 'Compra',
   VENTA: 'Venta',
   SUSCRIPCION: 'Suscripción FCI',
@@ -145,6 +150,7 @@ export const OPERATION_LABELS = {
 }
 
 export const OPERATION_COLORS = {
+  CAUCION: 'text-cyan-400',
   COMPRA: 'text-blue-400',
   VENTA: 'text-orange-400',
   SUSCRIPCION: 'text-blue-300',
