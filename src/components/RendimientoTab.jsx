@@ -130,12 +130,14 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
     let totalQtySold = 0
     let totalSaleARS = 0
     let totalSaleUSD = 0
+    let lastSellDate = null
     for (const op of sells) {
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
       totalSaleARS += qty * toARSPrice(op, mepRate)
       totalSaleUSD += qty * opToUSDPrice(op)
       totalQtySold += qty
+      if (!lastSellDate || op.date > lastSellDate) lastSellDate = op.date
     }
     const avgSellPriceARS = totalQtySold > 0 ? totalSaleARS / totalQtySold : null
     const avgSellPriceUSD = totalQtySold > 0 ? totalSaleUSD / totalQtySold : null
@@ -216,6 +218,11 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
       : null
     const currentValueUSD = currentValueARS != null ? currentValueARS / safeRate : null
 
+    // MEP rate used for this position's USD conversion
+    const mepUsed = isClosed && lastSellDate
+      ? (lookupMEP(lastSellDate) ?? mepRate)
+      : (mepRate ?? null)
+
     positions.push({
       ticker,
       heldQty,
@@ -232,6 +239,7 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
       totalPnlUSD,
       currentValueUSD,
       hasPrice: latestPriceARS != null,
+      mepUsed,
     })
   }
 
@@ -293,6 +301,9 @@ export default function RendimientoTab({
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">Ingresos</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium">P&L Total</th>
                 <th className="pb-2 text-right  text-xs text-slate-400 font-medium" title="Contribución al retorno de la cartera: P&L del activo / valor total de la cartera">Contrib. %</th>
+                <th className="pb-2 text-right  text-xs text-slate-400 font-medium" title={isClosedTable ? 'MEP al día de la última venta' : 'MEP actual (AL30/AL30D)'}>
+                  MEP
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -349,6 +360,10 @@ export default function RendimientoTab({
                       {contrib != null
                         ? `${contrib >= 0 ? '+' : ''}${fmt(contrib, 1)}%`
                         : '—'}
+                    </td>
+                    {/* MEP rate used for USD conversion */}
+                    <td className="py-2.5 text-right font-mono text-xs text-slate-400">
+                      {p.mepUsed != null ? `$ ${fmt(p.mepUsed, 0)}` : '—'}
                     </td>
                   </tr>
                 )

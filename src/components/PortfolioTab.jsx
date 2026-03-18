@@ -77,6 +77,7 @@ export default function PortfolioTab({ holdings, marketPrices, priceSources, kno
                   <th className="pb-2 text-right text-xs text-slate-400 font-medium">Precio ARS</th>
                   <th className="pb-2 text-right text-xs text-slate-400 font-medium">Valor ARS</th>
                   <th className="pb-2 text-right text-xs text-slate-400 font-medium">Valor USD</th>
+                  <th className="pb-2 text-right text-xs text-slate-400 font-medium" title="Dólar MEP (AL30/AL30D)">MEP</th>
                   <th className="pb-2 text-center text-xs text-slate-400 font-medium">Fuente</th>
                 </tr>
               </thead>
@@ -97,6 +98,9 @@ export default function PortfolioTab({ holdings, marketPrices, priceSources, kno
                       <td className="py-2.5 text-right font-mono text-slate-300">
                         {valueUSD != null ? `US$ ${fmt(valueUSD, 0)}` : '—'}
                       </td>
+                      <td className="py-2.5 text-right font-mono text-xs text-slate-400">
+                        {mepRate ? `$ ${fmt(mepRate, 0)}` : '—'}
+                      </td>
                       <td className="py-2.5 text-center">
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${badge.cls}`}>
                           {badge.label}
@@ -114,6 +118,9 @@ export default function PortfolioTab({ holdings, marketPrices, priceSources, kno
                   <td className="py-2.5 text-right font-mono text-slate-300">
                     {mepRate ? `US$ ${fmt(arsBalance / mepRate, 0)}` : '—'}
                   </td>
+                  <td className="py-2.5 text-right font-mono text-xs text-slate-400">
+                    {mepRate ? `$ ${fmt(mepRate, 0)}` : '—'}
+                  </td>
                   <td />
                 </tr>
                 {(usdBalance ?? 0) !== 0 && (
@@ -121,6 +128,9 @@ export default function PortfolioTab({ holdings, marketPrices, priceSources, kno
                     <td className="py-2.5 text-slate-400 font-medium">Efectivo USD (MEP)</td>
                     <td colSpan={3} />
                     <td className="py-2.5 text-right font-mono text-slate-300">US$ {fmt(usdBalance, 0)}</td>
+                    <td className="py-2.5 text-right font-mono text-xs text-slate-400">
+                      {mepRate ? `$ ${fmt(mepRate, 0)}` : '—'}
+                    </td>
                     <td />
                   </tr>
                 )}
