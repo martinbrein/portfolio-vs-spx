@@ -7,10 +7,21 @@
 
 
 export function buildPortfolioState(ops, mepRatesFromOps = {}) {
-  // Filter out ignored ops, sort by settlement date (or trade date)
+  // Filter out ignored ops, sort by settlement date (or trade date).
+  // When two ops share the same settlement date, process buys before sells so
+  // that Math.max(0, ...) clamping never zeroes out a position that was
+  // simultaneously opened and closed on the same day (e.g. AL30 MEP operation).
+  const typeOrder = (op) =>
+    op.type === 'COMPRA' || op.type === 'SUSCRIPCION' ? 0 : 1
   const active = ops
     .filter((op) => op.type !== 'IGNORAR')
-    .sort((a, b) => (a.settlementDate || a.date).localeCompare(b.settlementDate || b.date))
+    .sort((a, b) => {
+      const dateA = a.settlementDate || a.date
+      const dateB = b.settlementDate || b.date
+      const dateCmp = dateA.localeCompare(dateB)
+      if (dateCmp !== 0) return dateCmp
+      return typeOrder(a) - typeOrder(b)
+    })
 
   // Helper: look up closest MEP rate on or before a given date
   const mepDates = Object.keys(mepRatesFromOps).sort()
@@ -41,11 +52,20 @@ export function buildPortfolioState(ops, mepRatesFromOps = {}) {
       if (isUSD) {
         // Use tipoCambio from the row if it's a real rate (> 1), otherwise look up MEP
         const tc = op.tipoCambio > 1 ? op.tipoCambio : (lookupMEP(op.date) ?? 1)
+
+        // Primary market subscription (licitación primaria): detalle contains COMPRACPRM.
+        // Price is USD per nominal unit (e.g. 1.0 = at par), NOT % of par.
+        // Mark as bond so IOL prices (returned as % of par) get divided by 100.
+        const isPrimaryMarket = /COMPRACPRM/i.test(op.detalle ?? '')
+        if (isPrimaryMarket && op.ticker) {
+          bondTickers.add(op.ticker)
+        }
+
         // Convert USD price to ARS equivalent:
-        //  - FCI / USD-at-par: precio is USD per unit (e.g., 1.06) → arsPrice = precio × TC
-        //  - Bond/ON:          precio is % of par (e.g., 67.0)     → arsPrice = (precio/100) × TC
-        if (price < 5) {
-          arsPrice = price * tc          // FCI / absolute USD price (e.g., LOC6O at par = 1.0)
+        //  - FCI / USD-at-par / primary market: precio is USD per unit → arsPrice = precio × TC
+        //  - Bond/ON (secondary market):        precio is % of par    → arsPrice = (precio/100) × TC
+        if (price < 5 || isPrimaryMarket) {
+          arsPrice = price * tc          // FCI / absolute USD price / primary market at par
         } else {
           arsPrice = (price / 100) * tc  // Bond % of par
           bondTickers.add(op.ticker)     // Mark as bond
