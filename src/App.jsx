@@ -285,7 +285,7 @@ export default function App() {
         {activeTab === 0 && (
           <div className="bg-slate-800 rounded-2xl p-6">
             <h2 className="text-white font-semibold mb-4">Operaciones clasificadas</h2>
-            <OperationsTable ops={ops} />
+            <OperationsTable ops={ops} mepRates={mepRates} />
           </div>
         )}
 
