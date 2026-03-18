@@ -16,52 +16,54 @@ function fmt(n, dec = 2) {
 }
 
 /**
- * Convert operation price to ARS per unit (for display / ARS-instrument P&L).
+ * Convert operation price to ARS per unit.
  *
- * ARS instruments: always use |importeNeto| / |qty| as the per-unit price.
- *   Bonds in the XLS are quoted as % of par (e.g. precio=97.5 for a Lecap),
- *   so precio alone is NOT the per-unit ARS value. importeNeto/qty gives the
- *   correct per-unit price for both bonds (e.g. 975 ARS / 1000 VN = 0.975)
- *   and stocks (same as precio, since importeNeto = qty × precio).
+ * Primary: |importeNeto| / |qty| × TC — the actual amount paid/received per
+ * nominal unit converted to ARS. This handles all cases correctly:
+ *   - ARS bonds quoted as % of par (97.5 → XLS has importeNeto = qty × 0.975)
+ *   - ARS stocks (importeNeto = qty × precio, same result)
+ *   - USD bonds at % of par (importeNeto = qty × 0.675 USD × TC)
+ *   - USD stocks like MELI at $700/share (importeNeto = qty × 700 USD × TC)
  *
- * USD instruments: use tipoCambio when it's a real rate (> 1), else mepRate.
+ * Fallback to precio-based heuristic when importeNeto is unavailable.
  */
 function toARSPrice(op, mepRate) {
-  const price = op.precio
   const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
   const qty = Math.abs(op.valorNominal ?? 0)
   const amt = Math.abs(op.importeNeto ?? 0)
+  const tc = isUSD
+    ? ((op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1))
+    : 1
 
-  if (!isUSD) {
-    // ARS: derive per-unit price from importeNeto/qty to handle bond % of par correctly
-    if (qty > 0 && amt > 0) return amt / qty
-    return price ?? 0
-  }
+  // Primary: use actual traded amount — works for bonds AND stocks regardless of price scale
+  if (qty > 0 && amt > 0) return (amt / qty) * tc
 
-  // USD instrument
-  if (!price || price <= 0) {
-    if (!qty) return 0
-    return (amt / qty) * (mepRate ?? 1)
-  }
-  const tc = (op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1)
-  return price < 5
-    ? price * tc
-    : (price / 100) * tc
+  // Fallback: derive from precio
+  const price = op.precio
+  if (!price || price <= 0) return 0
+  if (!isUSD) return price
+  return price < 5 ? price * tc : (price / 100) * tc
 }
 
 /**
- * Convert operation price to USD per unit (for USD-instrument P&L).
- * price >= 5  → bond % of par  → divide by 100  (e.g. 67.0 → 0.67 USD/unit)
- * price <  5  → already USD/unit (FCI, at-par, e.g. LOC6O = 1.0)
- * fallback    → derive from importeNeto / qty
+ * Convert operation price to USD per unit.
+ *
+ * Primary: |importeNeto| / |qty| — the actual USD amount per nominal unit.
+ *   - Bond AL30 at 67%: importeNeto/qty = 0.675 USD/VN  ✓
+ *   - Stock MELI at $700: importeNeto/qty = 700 USD/share  ✓
+ *
+ * Fallback to precio-based heuristic when importeNeto is unavailable.
  */
 function toUSDPrice(op) {
+  const qty = Math.abs(op.valorNominal ?? 0)
+  const amt = Math.abs(op.importeNeto ?? 0)
+
+  // Primary: actual amount paid/received
+  if (qty > 0 && amt > 0) return amt / qty
+
+  // Fallback
   const price = op.precio
-  if (!price || price <= 0) {
-    const qty = Math.abs(op.valorNominal ?? 0)
-    if (!qty) return 0
-    return Math.abs(op.importeNeto ?? 0) / qty
-  }
+  if (!price || price <= 0) return 0
   return price >= 5 ? price / 100 : price
 }
 

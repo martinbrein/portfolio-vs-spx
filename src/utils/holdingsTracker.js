@@ -59,25 +59,30 @@ export function buildPortfolioState(ops, mepRatesFromOps = {}) {
         arsPrice = (absQty > 0 && absAmt > 0) ? absAmt / absQty : price
       }
       if (isUSD) {
-        // Use tipoCambio from the row if it's a real rate (> 1), otherwise look up MEP
         const tc = op.tipoCambio > 1 ? op.tipoCambio : (lookupMEP(op.date) ?? 1)
 
-        // Primary market subscription (licitación primaria): detalle contains COMPRACPRM.
-        // Price is USD per nominal unit (e.g. 1.0 = at par), NOT % of par.
-        // Mark as bond so IOL prices (returned as % of par) get divided by 100.
         const isPrimaryMarket = /COMPRACPRM/i.test(op.detalle ?? '')
-        if (isPrimaryMarket && op.ticker) {
-          bondTickers.add(op.ticker)
-        }
+        if (isPrimaryMarket && op.ticker) bondTickers.add(op.ticker)
 
-        // Convert USD price to ARS equivalent:
-        //  - FCI / USD-at-par / primary market: precio is USD per unit → arsPrice = precio × TC
-        //  - Bond/ON (secondary market):        precio is % of par    → arsPrice = (precio/100) × TC
-        if (price < 5 || isPrimaryMarket) {
-          arsPrice = price * tc          // FCI / absolute USD price / primary market at par
+        // Primary: use actual traded amounts to get true per-unit USD price × TC.
+        // This avoids the price/100 heuristic that incorrectly divides high-price
+        // stocks (e.g. MELI CEDEAR at $700/share) the same way as bonds (AL30 at 67%).
+        if (absQty > 0 && absAmt > 0) {
+          const usdPerUnit = absAmt / absQty
+          arsPrice = usdPerUnit * tc
+          // Bond detection: sovereign/corporate bonds have unit values < $5
+          // (par = $1 per VN, max reasonable price ~200% = $2/VN).
+          // High-price stocks/CEDEARs are always well above $5/share.
+          if (!isPrimaryMarket && price >= 5 && usdPerUnit < 5) {
+            bondTickers.add(op.ticker)
+          }
+        } else if (price < 5 || isPrimaryMarket) {
+          // FCI / at-par / primary market
+          arsPrice = price * tc
         } else {
-          arsPrice = (price / 100) * tc  // Bond % of par
-          bondTickers.add(op.ticker)     // Mark as bond
+          // Fallback: assume % of par bond
+          arsPrice = (price / 100) * tc
+          bondTickers.add(op.ticker)
         }
       }
       if (!knownPrices[op.ticker]) knownPrices[op.ticker] = []
