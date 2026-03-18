@@ -97,6 +97,20 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
       op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
     )
 
+    // Convert op price to USD per unit, handling mixed-currency legs correctly.
+    // For USD instruments sold/bought in the ARS section (e.g. the ARS leg of a
+    // MEP operation), toUSDPrice() is wrong (it treats the ARS price as % of par).
+    // Use toARSPrice / historical MEP rate instead.
+    function opToUSDPrice(op) {
+      const opIsARS = op.currency === 'ARS'
+      if (isUSDInstrument && opIsARS) {
+        const arsPerUnit = toARSPrice(op, mepRate)
+        const rate = lookupMEP(op.date) ?? mepRate ?? 1
+        return arsPerUnit / rate
+      }
+      return toUSDPrice(op)
+    }
+
     // Weighted average buy price in ARS (for display) and USD (for P&L of USD instruments)
     let totalQtyBought = 0
     let totalCostARS = 0
@@ -105,7 +119,7 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
       totalCostARS += qty * toARSPrice(op, mepRate)
-      totalCostUSD += qty * toUSDPrice(op)
+      totalCostUSD += qty * opToUSDPrice(op)
       totalQtyBought += qty
     }
     if (totalQtyBought === 0) continue
@@ -120,7 +134,7 @@ function buildPositions(ops, marketPrices, knownPrices, finalHoldings, mepRate, 
       const qty = Math.abs(op.valorNominal ?? 0)
       if (!qty) continue
       totalSaleARS += qty * toARSPrice(op, mepRate)
-      totalSaleUSD += qty * toUSDPrice(op)
+      totalSaleUSD += qty * opToUSDPrice(op)
       totalQtySold += qty
     }
     const avgSellPriceARS = totalQtySold > 0 ? totalSaleARS / totalQtySold : null
