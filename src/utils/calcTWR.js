@@ -98,11 +98,15 @@ export function buildDailyValues(stateByDate, mepRates, marketPrices, knownPrice
   // Forward-fill market prices onto every business day (O(n) per ticker, done once)
   const filledPrices = forwardFillPrices(marketPrices, allDays)
 
-  // Forward-fill MEP rates
+  // MEP rate lookup: forward-fill (nearest prior date), with backward-fill
+  // fallback for dates before the first known rate (e.g. deposits that predate
+  // the first USD_MEP trade in the account statement).
   const mepSorted = Object.keys(mepRates).sort()
   function getMEP(date) {
     const prior = mepSorted.filter((d) => d <= date).at(-1)
-    return prior ? mepRates[prior] : null
+    if (prior) return mepRates[prior]
+    // No rate on or before this date → use the earliest available rate
+    return mepSorted.length > 0 ? mepRates[mepSorted[0]] : null
   }
 
   // Group ECF events by date
