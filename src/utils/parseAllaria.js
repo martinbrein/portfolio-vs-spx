@@ -59,6 +59,11 @@ export function parseAllariaXLS(file) {
         const mepRatesFromOps = {}  // { date: mepRate } extracted from tipoCambio
         let currentCurrency = 'ARS'
 
+        // Track boleto numbers seen in USD sections.
+        // When the same boleto appears in the ARS section it's a commission/fee
+        // charged in pesos for a USD trade — not a separate buy/sell operation.
+        const usdBoletos = new Set()
+
         for (const row of rows) {
           // Skip header row
           if (String(row[0]).includes('Fecha') && String(row[2]).includes('Detalle')) continue
@@ -79,6 +84,21 @@ export function parseAllariaXLS(file) {
 
           // Skip rows without a valid trade date
           if (!fechaConcertacion) continue
+
+          // Extract boleto number from detalle (e.g. "Boleto / 822175 / COMPRA / ...")
+          const boletoMatch = detalle.match(/^Boleto\s*\/\s*(\d+)/i)
+          const boletoNum = boletoMatch ? boletoMatch[1] : null
+
+          // Register USD boletos so we can detect ARS duplicates later
+          if ((currentCurrency === 'USD_MEP' || currentCurrency === 'USD_CABLE') && boletoNum) {
+            usdBoletos.add(boletoNum)
+          }
+
+          // Skip ARS rows that share a boleto with a USD trade: these are pesos
+          // commissions/fees for that USD operation, not separate transactions.
+          if (currentCurrency === 'ARS' && boletoNum && usdBoletos.has(boletoNum)) {
+            continue
+          }
 
           const valorNominal = parseNum(row[3])
           const precio = parseNum(row[4])
