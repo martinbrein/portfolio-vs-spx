@@ -46,9 +46,18 @@ export function buildPortfolioState(ops, mepRatesFromOps = {}) {
 
     const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
 
-    // Record known price from the operation — always store in ARS
+    // Record known price from the operation — always store in ARS, per nominal unit.
+    // For ARS instruments use |importeNeto|/|qty| rather than precio: bonds are quoted
+    // as % of par in the XLS (e.g. 97.5), so precio ≠ per-unit ARS.
+    // importeNeto / qty gives the true per-unit price for both bonds and stocks.
     if (op.ticker && price && price > 0) {
-      let arsPrice = price
+      let arsPrice
+      const absQty = Math.abs(qty)
+      const absAmt = Math.abs(op.importeNeto ?? 0)
+      if (!isUSD) {
+        // ARS instrument: derive from importeNeto to handle % of par bonds correctly
+        arsPrice = (absQty > 0 && absAmt > 0) ? absAmt / absQty : price
+      }
       if (isUSD) {
         // Use tipoCambio from the row if it's a real rate (> 1), otherwise look up MEP
         const tc = op.tipoCambio > 1 ? op.tipoCambio : (lookupMEP(op.date) ?? 1)

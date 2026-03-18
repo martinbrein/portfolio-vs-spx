@@ -17,25 +17,36 @@ function fmt(n, dec = 2) {
 
 /**
  * Convert operation price to ARS per unit (for display / ARS-instrument P&L).
- * For USD-section ops: use tipoCambio when it's a real rate (> 1),
- * otherwise fall back to mepRate (handles licitación primaria where TC ≤ 1).
+ *
+ * ARS instruments: always use |importeNeto| / |qty| as the per-unit price.
+ *   Bonds in the XLS are quoted as % of par (e.g. precio=97.5 for a Lecap),
+ *   so precio alone is NOT the per-unit ARS value. importeNeto/qty gives the
+ *   correct per-unit price for both bonds (e.g. 975 ARS / 1000 VN = 0.975)
+ *   and stocks (same as precio, since importeNeto = qty × precio).
+ *
+ * USD instruments: use tipoCambio when it's a real rate (> 1), else mepRate.
  */
 function toARSPrice(op, mepRate) {
   const price = op.precio
   const isUSD = op.currency === 'USD_MEP' || op.currency === 'USD_CABLE'
+  const qty = Math.abs(op.valorNominal ?? 0)
+  const amt = Math.abs(op.importeNeto ?? 0)
+
+  if (!isUSD) {
+    // ARS: derive per-unit price from importeNeto/qty to handle bond % of par correctly
+    if (qty > 0 && amt > 0) return amt / qty
+    return price ?? 0
+  }
+
+  // USD instrument
   if (!price || price <= 0) {
-    const qty = Math.abs(op.valorNominal ?? 0)
     if (!qty) return 0
-    const unitPrice = Math.abs(op.importeNeto ?? 0) / qty
-    return isUSD ? unitPrice * (mepRate ?? 1) : unitPrice
+    return (amt / qty) * (mepRate ?? 1)
   }
-  if (isUSD) {
-    const tc = (op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1)
-    return price < 5
-      ? price * tc
-      : (price / 100) * tc
-  }
-  return price
+  const tc = (op.tipoCambio ?? 1) > 1 ? op.tipoCambio : (mepRate ?? 1)
+  return price < 5
+    ? price * tc
+    : (price / 100) * tc
 }
 
 /**
